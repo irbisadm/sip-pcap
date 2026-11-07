@@ -152,3 +152,17 @@ test("errors: not a string, empty, unknown method", () => {
   assert.throws(() => parseSipMessage(""), /empty start line/);
   assert.throws(() => parseSipMessage("GET / HTTP/1.1\r\nHost: x\r\n\r\n"), /unrecognized start line/);
 });
+
+test("sdpWarnings: empty for clean SDP and without SDP", () => {
+  assert.deepEqual(parseSipMessage(invite).sdpWarnings, []);
+  assert.deepEqual(parseSipMessage("BYE sip:b@x SIP/2.0\r\n\r\n").sdpWarnings, []);
+});
+
+test("sdpWarnings: SDP that breaks RFC 8866 is parsed and its problems listed", () => {
+  const broken = sdpBody.replace("t=0 0\r\n", "").replace("s=-\r\n", "s=-\r\nx=1\r\n");
+  const p = parseSipMessage(sip(["INVITE sip:b@x SIP/2.0", "Call-ID: w@x", "CSeq: 1 INVITE", "Content-Type: application/sdp"], broken));
+  assert.ok(p.sdp, "SDP kept");
+  assert.equal(p.sdp.media[0].codecs[0].codec, "PCMU");
+  assert.deepEqual(p.sdpWarnings.map((w) => w.code), ["unknown-line-type", "missing-mandatory-line"]);
+  assert.equal(p.sdpWarnings, p.sdp.warnings);
+});

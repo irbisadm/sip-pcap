@@ -199,6 +199,18 @@ test("Linux cooked capture v2 (LINKTYPE 276)", () => {
   assert.equal(r.calls[0].messages[0].src, "10.0.0.1:5060");
 });
 
+// ─── SDP problems are visible on the ladder ───────────────────────────────────
+test("ladder messages carry SDP warnings", () => {
+  const broken = sdp("10.0.0.1", [0]).replace("s=-\n", "");
+  const pcap = classicPcap([
+    { ts: 0, frame: udp({ src: "10.0.0.1", dst: "10.0.0.2", payload: sip("INVITE sip:b@x SIP/2.0", base("1 INVITE"), broken) }) },
+  ]);
+  const [m] = buildLadder(pcap).calls[0].messages;
+  assert.equal(m.sdpRole, "offer", "the SDP is still used");
+  assert.deepEqual(m.sdpWarnings.map((w) => w.code), ["missing-mandatory-line"]);
+  for (const x of buildLadder(proxyCallPcap()).calls[0].messages) assert.deepEqual(x.sdpWarnings, []);
+});
+
 // ─── worker contract: the page gets summaries, not messages ─────────────────────
 test("summarizeLadder lists calls without their messages", () => {
   const r = buildLadder(proxyCallPcap());

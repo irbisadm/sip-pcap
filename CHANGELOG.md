@@ -20,7 +20,11 @@ webrtc.page, made into a standalone package.
   retransmissions dropped, split by Content-Length); SIP found by port or content.
 - `parseSipMessage`: compact headers, folding, repeated headers, SDP in plain and
   multipart bodies.
-- `parseSdp` and `negotiate` (RFC 3264).
+- `parseSdp` and `negotiate` (RFC 3264). SDP is parsed leniently with
+  `@irbisadm/simple-sdp`: SDP that breaks RFC 8866 is still parsed, and its problems
+  are reported as `warnings` (`parseSdp`), `sdpWarnings` (`parseSipMessage`, ladder
+  messages). Differences from the earlier sdp-transform based parser are listed in
+  the README.
 - `createOfferAnswerTracker`: offer/answer roles, pairing per hop, late offers,
   retransmissions; one implementation for the ladder and stateful dialog stores.
 - `@irbisadm/sip-pcap/testing`: in-memory pcap/pcapng writer and a proxied call scenario.

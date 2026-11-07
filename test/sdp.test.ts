@@ -3,35 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseSdp, negotiate } from "../src/index.js";
 import type { SdpSession } from "../src/sdp.js";
-
-const sdpOffer = [
-  "v=0", "o=- 1 2 IN IP4 127.0.0.1", "s=-", "t=0 0", "a=group:BUNDLE 0 1",
-  "m=audio 49170 UDP/TLS/RTP/SAVPF 111 0", "c=IN IP4 0.0.0.0", "a=mid:0", "a=sendrecv",
-  "a=ice-ufrag:aaaa", "a=ice-pwd:bbbbbbbbbbbbbbbbbbbbbb",
-  "a=fingerprint:sha-256 AA:BB", "a=setup:actpass",
-  "a=rtpmap:111 opus/48000/2", "a=fmtp:111 minptime=10;useinbandfec=1",
-  "a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level",
-  "m=video 49172 UDP/TLS/RTP/SAVPF 96", "a=mid:1", "a=sendrecv", "a=rtpmap:96 VP8/90000",
-].join("\r\n") + "\r\n";
-
-const sdpAnswer = [
-  "v=0", "o=- 9 2 IN IP4 127.0.0.1", "s=-", "t=0 0", "a=group:BUNDLE 0 1",
-  "m=audio 49180 UDP/TLS/RTP/SAVPF 111", "c=IN IP4 0.0.0.0", "a=mid:0", "a=sendrecv",
-  "a=setup:active", "a=rtpmap:111 opus/48000/2",
-  "a=extmap:1 urn:ietf:params:rtp-hdrext:ssrc-audio-level",
-  "m=video 0 UDP/TLS/RTP/SAVPF 96", "a=mid:1", "a=rtpmap:96 VP8/90000",
-].join("\r\n") + "\r\n";
-
-const sipSdp = `v=0
-o=alice 2890844526 2890844526 IN IP4 192.0.2.10
-s=-
-c=IN IP4 192.0.2.10
-t=0 0
-m=audio 49170 RTP/AVP 0 8 18 101
-a=rtpmap:101 telephone-event/8000
-a=fmtp:101 0-16
-a=fmtp:18 annexb=no
-`;
+import { sdpOffer, sdpAnswer, sipSdp } from "./lib/sdp-samples.js";
 
 // sipSdp with another payload list and no rtpmap/fmtp lines
 const audioOnly = (pts: string) => sipSdp.replace("RTP/AVP 0 8 18 101", `RTP/AVP ${pts}`).replace(/a=(rtpmap|fmtp):.*\n/g, "");
@@ -157,4 +129,94 @@ test("negotiate: media matched by mid, else by position", () => {
 
 test("negotiate: missing side throws", () => {
   assert.throws(() => negotiate(parseSdp(sdpOffer), null as unknown as SdpSession), /need both/);
+});
+
+// ─── lenient parsing of SDP that breaks RFC 8866 ─────────────────────────────
+const base = "v=0\no=- 1 1 IN IP4 10.0.0.1\ns=-\nc=IN IP4 10.0.0.1\nt=0 0\nm=audio 4000 RTP/AVP 0 96\na=rtpmap:96 telephone-event/8000\n";
+const codes = (text: string) => parseSdp(text).warnings.map((w) => w.code);
+
+test("clean SDP: no warnings", () => {
+  assert.deepEqual(parseSdp(base).warnings, []);
+  assert.deepEqual(parseSdp(sdpOffer).warnings, []);
+});
+
+test("warning shape: code, reason, line number, line, action", () => {
+  const [w] = parseSdp(base + "x=whatever\n").warnings;
+  assert.deepEqual(Object.keys(w).sort(), ["action", "code", "line", "lineNumber", "reason"]);
+  assert.equal(w.code, "unknown-line-type");
+  assert.equal(w.lineNumber, 8);
+  assert.equal(w.line, "x=whatever");
+  assert.equal(w.action, "skipped");
+  assert.equal(typeof w.reason, "string");
+});
+
+test("lines out of order are kept", () => {
+  const r = parseSdp("v=0\no=- 1 1 IN IP4 10.0.0.1\ns=-\nt=0 0\nc=IN IP4 10.0.0.1\nm=audio 4000 RTP/AVP 0\n");
+  assert.deepEqual(r.warnings.map((w) => [w.code, w.lineNumber]), [["out-of-order", 5]]);
+  assert.equal(r.media[0].codecs[0].codec, "PCMU");
+});
+
+test("missing s= line: still parsed, reported", () => {
+  const r = parseSdp(base.replace("s=-\n", ""));
+  assert.deepEqual(r.warnings.map((w) => [w.code, w.lineNumber, w.line]), [["missing-mandatory-line", 0, ""]]);
+  assert.equal(r.media.length, 1);
+});
+
+test("a=setup with a non-RFC value is kept in dtls.setup", () => {
+  const r = parseSdp(base + "a=setup:client\na=fingerprint:sha-1 AA:BB\n");
+  assert.deepEqual(r.media[0].dtls, { setup: "client", fingerprint: "sha-1 AA:BB" });
+  assert.deepEqual(codes(base + "a=setup:client\n"), ["malformed-attribute"]);
+});
+
+test("m= with an unreadable port: port null, not rejected, later lines still attach", () => {
+  const r = parseSdp(base.replace("m=audio 4000", "m=audio abc") + "a=sendonly\n");
+  assert.equal(r.media[0].port, null);
+  assert.equal(r.media[0].rejected, false);
+  assert.equal(r.media[0].direction, "sendonly");
+  assert.deepEqual(r.warnings.map((w) => w.code), ["malformed-media"]);
+});
+
+test("a=rtpmap without a clock rate (old devices) still names the codec", () => {
+  const r = parseSdp(base.replace("a=rtpmap:96 telephone-event/8000", "a=rtpmap:96 telephone-event"));
+  assert.deepEqual(r.media[0].codecs.find((c) => c.pt === 96), { pt: 96, codec: "telephone-event", rate: null, channels: 1, fmtp: null });
+  assert.deepEqual(r.warnings.map((w) => w.code), ["malformed-attribute"]);
+});
+
+test("a=rtpmap for a payload type that is not in m= adds no codec", () => {
+  const r = parseSdp(base + "a=rtpmap:8 PCMA/8000\n");
+  assert.deepEqual(r.media[0].codecs.map((c) => c.pt), [96, 0]);
+});
+
+test("CR-only line endings and trailing whitespace", () => {
+  const cr = parseSdp(base.replace(/\n/g, "\r"));
+  assert.deepEqual(cr.warnings, []);
+  assert.deepEqual(cr.media[0].codecs.map((c) => c.codec), ["telephone-event", "PCMU"]);
+  const ws = parseSdp(base.replace("telephone-event/8000", "telephone-event/8000  "));
+  assert.deepEqual(ws.warnings.map((w) => [w.code, w.action]), [["trailing-whitespace", "repaired"]]);
+  assert.equal(ws.media[0].codecs[0].rate, 8000);
+});
+
+test("text that is not SDP: an empty model and warnings, no exception", () => {
+  const r = parseSdp("hello world\nthis is not sdp");
+  assert.deepEqual(r.media, []);
+  assert.equal(r.origin, null);
+  assert.ok(r.warnings.some((w) => w.code === "missing-version"));
+});
+
+// ─── adapter edge cases (simple-sdp model -> normalized model) ───────────────
+test("fmtp is the parameter string as written", () => {
+  const [m] = parseSdp(base + "a=fmtp:96 0-15,16\n").media;
+  assert.equal(m.codecs[0].fmtp, "0-15,16");
+  const [o] = parseSdp(sdpOffer.replace("minptime=10;useinbandfec=1", "minptime=10; useinbandfec=1")).media;
+  assert.equal(o.codecs[0].fmtp, "minptime=10; useinbandfec=1");
+});
+
+test("protocol comes from the m= proto field", () => {
+  assert.equal(parseSdp(sdpOffer).media[0].protocol, "UDP/TLS/RTP/SAVPF");
+  assert.equal(parseSdp(base).media[0].protocol, "RTP/AVP");
+});
+
+test("static payload type with an explicit a=rtpmap is not marked static", () => {
+  const [m] = parseSdp(base.replace("RTP/AVP 0 96", "RTP/AVP 0") + "a=rtpmap:0 PCMU/8000\n").media;
+  assert.deepEqual(m.codecs, [{ pt: 0, codec: "PCMU", rate: 8000, channels: 1, fmtp: null }]);
 });

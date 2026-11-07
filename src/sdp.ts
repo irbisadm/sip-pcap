@@ -1,9 +1,10 @@
 // SDP parsing (normalized media model) and RFC 3264 offer/answer negotiation.
 // The output shapes are a public contract: add fields, never rename or remove them.
 
-// sdp-transform is replaced by @irbisadm/simple-sdp.
-import sdpTransform from "sdp-transform";
-import type { MediaDescription } from "sdp-transform";
+import { sdpReader } from "@irbisadm/simple-sdp";
+import type { SdpCommonAttributes, SdpLenient, SdpLenientMediaSection, SdpParseWarning } from "@irbisadm/simple-sdp";
+
+export type { SdpParseWarning, SdpParseWarningCode, SdpParseWarningAction } from "@irbisadm/simple-sdp";
 
 export type Direction = "sendrecv" | "sendonly" | "recvonly" | "inactive";
 
@@ -33,13 +34,14 @@ export interface SdpMedia {
   mid: string;
   /** `audio`, `video`, `application`, … */
   type: string;
-  port: number;
+  /** Null when the `m=` line has no readable port (never 0 then: 0 means rejected). */
+  port: number | null;
   /** Port 0. */
   rejected: boolean;
   /** E.g. `RTP/AVP`, `UDP/TLS/RTP/SAVPF`. */
   protocol: string;
   direction: Direction;
-  /** Codecs with `a=rtpmap` in their order, then static types without it. */
+  /** Codecs with `a=rtpmap` in `m=` order, then static types without it. */
   codecs: Codec[];
   extensions: Extension[];
   ice: { ufrag: string | null; pwd: string | null } | null;
@@ -67,6 +69,11 @@ export interface SdpSession {
   /** Some media section is not sendrecv. */
   hold: boolean;
   media: SdpMedia[];
+  /**
+   * Where the SDP breaks RFC 8866 and what the parser did about it; empty for a
+   * clean SDP. From `@irbisadm/simple-sdp` lenient parsing.
+   */
+  warnings: SdpParseWarning[];
 }
 
 /** Offer/answer result for one media section. */
@@ -111,94 +118,146 @@ const STATIC_PT: Record<number, { codec: string; rate: number; channels: number 
   18: { codec: "G729", rate: 8000, channels: 1 },
 };
 
-function midStr(m: MediaDescription, idx: number): string {
-  return m.mid !== undefined && m.mid !== null ? String(m.mid) : `m${idx}`;
+const ENCRYPT_URI = "urn:ietf:params:rtp-hdrext:encrypt";
+
+// A numeric string becomes a number when the round trip is exact, as the
+// sdp-transform based parser did for o= (64-bit ids stay strings).
+const intIfExact = (v: string): number | string => (String(Number(v)) === v ? Number(v) : v);
+
+// The `a=fmtp` parameter strings of each media section, as written. The model keeps
+// parameters as a map; the normalized `fmtp` field is the original text.
+function rawFmtp(text: string): Map<number, string>[] {
+  const out: Map<number, string>[] = [];
+  for (const line of text.split(/\r\n|\r|\n/)) {
+    if (line.startsWith("m=")) out.push(new Map());
+    const m = out.length ? /^a=fmtp:(\d+) (.*)$/.exec(line) : null;
+    if (m) out[out.length - 1].set(Number(m[1]), m[2]);
+  }
+  return out;
 }
 
-// Normalize an sdp-transform media entry into our codec/extension shape.
-function normalizeMedia(m: MediaDescription, idx: number): SdpMedia {
-  const fmtpByPt = new Map<number, string>();
-  for (const f of m.fmtp || []) fmtpByPt.set(f.payload, f.config);
+const genericAttr = (m: SdpCommonAttributes, name: string): string | undefined =>
+  m.attributes?.find((a) => a.name === name)?.value;
 
+// Typed `a=setup`, or one that lenient parsing kept as a generic attribute because
+// its value is not one of the RFC 4145 values.
+const setupOf = (m: SdpCommonAttributes): string | undefined => m.setup ?? genericAttr(m, "setup");
+
+function lastFingerprint(m: SdpCommonAttributes): string | undefined {
+  const f = m.fingerprints?.[m.fingerprints.length - 1];
+  return f ? `${f.hashFunction} ${f.fingerprint}` : undefined;
+}
+
+// `a=rtpmap` lines that lenient parsing kept as generic attributes because they do
+// not follow RFC 8866, e.g. `a=rtpmap:96 telephone-event` without a clock rate.
+function looseRtpmaps(m: SdpLenientMediaSection): Map<number, { codec: string; rate: number | null; channels: number }> {
+  const out = new Map<number, { codec: string; rate: number | null; channels: number }>();
+  for (const a of m.attributes ?? []) {
+    const r = a.name === "rtpmap" && a.value ? /^(\d+)\s+([^/\s]+)(?:\/(\d+)(?:\/(\d+))?)?/.exec(a.value) : null;
+    if (r && !out.has(Number(r[1]))) {
+      out.set(Number(r[1]), { codec: r[2], rate: r[3] ? Number(r[3]) : null, channels: r[4] ? Number(r[4]) : 1 });
+    }
+  }
+  return out;
+}
+
+function normalizeMedia(m: SdpLenientMediaSection, idx: number, session: SdpLenient, fmtp: Map<number, string> | undefined): SdpMedia {
   const codecs: Codec[] = [];
-  const seenPt = new Set<number>();
-  for (const r of m.rtp || []) {
-    seenPt.add(r.payload);
-    codecs.push({
-      pt: r.payload,
-      codec: r.codec,
-      rate: r.rate ?? null,
-      channels: r.encoding ?? 1,
-      fmtp: fmtpByPt.get(r.payload) ?? null,
-    });
-  }
-  // static payloads listed in m= line but without rtpmap
-  const ptList = String(m.payloads ?? "")
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map(Number);
-  for (const pt of ptList) {
-    if (seenPt.has(pt)) continue;
-    const s = STATIC_PT[pt];
-    codecs.push({
-      pt,
-      codec: s ? s.codec : `PT${pt}`,
-      rate: s ? s.rate : null,
-      channels: s ? s.channels : 1,
-      fmtp: fmtpByPt.get(pt) ?? null,
-      static: true,
-    });
+  const statics: Codec[] = [];
+  const loose = looseRtpmaps(m);
+  for (const c of m.codecs ?? []) {
+    const pt = c.payloadType;
+    const l = loose.get(pt);
+    if (c.encodingName !== undefined) {
+      codecs.push({
+        pt,
+        codec: c.encodingName,
+        rate: c.clockRate ?? null,
+        channels: c.encodingParameters ?? 1,
+        fmtp: fmtp?.get(pt) ?? null,
+      });
+    } else if (l) {
+      codecs.push({ pt, ...l, fmtp: fmtp?.get(pt) ?? null });
+    } else {
+      const s = STATIC_PT[pt];
+      statics.push({
+        pt,
+        codec: s ? s.codec : `PT${pt}`,
+        rate: s ? s.rate : null,
+        channels: s ? s.channels : 1,
+        fmtp: fmtp?.get(pt) ?? null,
+        static: true,
+      });
+    }
   }
 
-  const extensions: Extension[] = (m.ext || []).map((e) => ({ id: e.value, uri: e.uri }));
+  const extensions: Extension[] = (m.extmap ?? []).map((e) => {
+    // RFC 6904: `a=extmap:<id> urn:ietf:params:rtp-hdrext:encrypt <uri>`
+    const uri = e.uri === ENCRYPT_URI && e.attributes ? e.attributes.split(" ")[0] : e.uri;
+    return { id: e.id, uri };
+  });
+
+  // session-level values apply to every media section that does not set its own
+  const ufrag = m.iceUfrag ?? session.iceUfrag;
+  const pwd = m.icePwd ?? session.icePwd;
+  const fingerprint = lastFingerprint(m) ?? lastFingerprint(session);
+  const setup = setupOf(m) ?? setupOf(session);
+  const port = m.port ?? null;
 
   return {
-    mid: midStr(m, idx),
+    mid: m.mid ?? `m${idx}`,
     type: m.type,
-    port: m.port,
-    rejected: m.port === 0,
-    protocol: m.protocol,
-    direction: m.direction || "sendrecv",
-    codecs,
+    port,
+    rejected: port === 0,
+    protocol: m.proto ?? "",
+    direction: m.direction ?? session.direction ?? "sendrecv",
+    // with a=rtpmap first, then static types without it, as before
+    codecs: [...codecs, ...statics],
     extensions,
-    ice:
-      m.iceUfrag || m.icePwd
-        ? { ufrag: m.iceUfrag ?? null, pwd: m.icePwd ?? null }
-        : null,
-    dtls: m.fingerprint
-      ? {
-          setup: m.setup ?? null,
-          fingerprint: `${m.fingerprint.type} ${m.fingerprint.hash}`,
-        }
-      : m.setup
-        ? { setup: m.setup, fingerprint: null }
-        : null,
-  } as SdpMedia;
+    ice: ufrag !== undefined || pwd !== undefined ? { ufrag: ufrag ?? null, pwd: pwd ?? null } : null,
+    dtls: fingerprint !== undefined || setup !== undefined
+      ? { setup: setup ?? null, fingerprint: fingerprint ?? null }
+      : null,
+  };
+}
+
+function normalizeOrigin(o: SdpLenient["origin"]): SdpOrigin | null {
+  const ipVer = o && /^IP(\d)$/.exec(o.addrType);
+  if (!o || !ipVer) return null;
+  return {
+    username: o.username,
+    sessionId: intIfExact(o.sessId),
+    sessionVersion: intIfExact(o.sessVersion),
+    netType: o.netType,
+    ipVer: Number(ipVer[1]),
+    address: o.unicastAddress,
+  };
 }
 
 /**
  * Parse an SDP into the normalized session model.
+ *
+ * Parsing is lenient: SDP from real devices that breaks RFC 8866 (lines out of
+ * order, unknown or malformed lines, a missing `s=`, …) still gives the best model
+ * the text allows, and every deviation is listed in `warnings`.
  * @throws Error on empty input
  */
 export function parseSdp(text: string): SdpSession {
   if (typeof text !== "string" || !text.trim()) {
     throw new Error("parseSdp: empty SDP");
   }
-  const raw = sdpTransform.parse(text);
-  const media = (raw.media || []).map((m, i) => normalizeMedia(m, i));
-  let bundle: string[] = [];
-  for (const g of raw.groups || []) {
-    if (g.type === "BUNDLE") bundle = String(g.mids).trim().split(/\s+/).filter(Boolean);
-  }
+  // strict parsing would be sdpReader.parse(text), which throws SdpParseError
+  const { sdp: raw, warnings } = sdpReader.parseLenient(text);
+  const fmtp = rawFmtp(text);
+  const media = raw.media.map((m, i) => normalizeMedia(m, i, raw, fmtp[i]));
+  const bundleGroup = raw.group?.filter((g) => g.semantics === "BUNDLE").pop();
   const hold = media.some((m) => m.direction === "inactive" || m.direction === "sendonly" || m.direction === "recvonly");
-  // sdp-transform turns values that look like integers into numbers (sessionId, ipVer)
-  const origin = (raw.origin as unknown as SdpOrigin | undefined) || null;
   return {
-    origin,
-    bundle,
+    origin: normalizeOrigin(raw.origin),
+    bundle: bundleGroup ? [...bundleGroup.mids] : [],
     hold,
     media,
+    warnings,
   };
 }
 
