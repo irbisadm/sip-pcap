@@ -331,6 +331,8 @@ import type { Ladder, LadderCall, LadderSummary, SdpSession, Negotiation } from 
 ## Development
 
 ```sh
+nvm use             # Node 24 (.nvmrc); the library itself supports Node >= 20
+npm ci
 npm run build       # src/ -> dist/
 npm test            # node:test via tsx (builds first)
 npm run typecheck   # library, tests and a consumer of the built declarations
