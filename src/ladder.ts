@@ -1,16 +1,12 @@
 // SIP ladder: turn a pcap/pcapng capture into calls (grouped by Call-ID), the
 // network endpoints each call touched, and every SIP message between them in
-// time order — with the SDP of each step and the offer/answer outcome per hop.
-//
-// Built on the same parsers as the MCP `sip_dialog` / `sdp_parse` tools
-// (sdp-sip.js). Pure and runtime-neutral: used by the browser tool at
-// webrtc.page/tools/sip-ladder and testable under node:test.
+// time order, with the SDP of each step and the offer/answer outcome per hop.
+// Pure and runtime-neutral: runs in Node.js, browsers and Web Workers.
 
 import { parsePcap, reassembleSip } from "./pcap.js";
 import { parseSipMessage, type CSeq, type SipMessage } from "./sip.js";
-import { negotiate, type Negotiation, type SdpSession } from "./sdp.js";
-
-export type SdpRole = "offer" | "answer";
+import type { Negotiation, SdpSession } from "./sdp.js";
+import { createOfferAnswerTracker, type OfferAnswerTracker, type SdpRole } from "./offer-answer.js";
 
 /** A network endpoint (`host:port`) the call touched. Proxies and SBCs are separate endpoints. */
 export interface LadderEndpoint {
@@ -151,36 +147,6 @@ function labelOf(msg: SipMessage): string {
 
 const code = (m: LadderMessage): number => m.statusCode ?? 0;
 
-interface CallState {
-  id: string;
-  from: string | null;
-  to: string | null;
-  endpoints: LadderEndpoint[];
-  endpointIdx: Map<string, number>;
-  messages: LadderMessage[];
-  seen: Set<string>;
-  offeredRequests: Set<string>;
-  lateOffer: Set<number | undefined>;
-  offers: LadderMessage[];
-}
-
-// Offer/answer role of an SDP-carrying message (RFC 3264 / RFC 6337 usage):
-// a request with SDP offers, unless it answers an offer sent in a response
-// (ACK / PRACK after a late offer); a response answers when its request offered.
-function sdpRole(msg: SipMessage, call: CallState): SdpRole | null {
-  if (!msg.sdp) return null;
-  const key = `${msg.cseq?.seq}|${msg.cseq?.method}`;
-  if (msg.kind === "request") {
-    if (msg.method === "ACK") return "answer";
-    if (msg.method === "PRACK") return call.lateOffer.has(msg.cseq?.seq) ? "answer" : "offer";
-    call.offeredRequests.add(key);
-    return "offer";
-  }
-  if (call.offeredRequests.has(key)) return "answer";
-  if (msg.cseq?.method === "INVITE") call.lateOffer.add(msg.cseq.seq);
-  return "offer";
-}
-
 function summarize(call: { messages: LadderMessage[] }): CallSummary {
   const msgs = call.messages;
   const first = msgs.find((m) => m.kind === "request" && !m.retransmission) ?? msgs[0];
@@ -226,6 +192,16 @@ function mermaidOf(call: { endpoints: LadderEndpoint[]; messages: LadderMessage[
   return lines.join("\n");
 }
 
+interface CallState {
+  id: string;
+  from: string | null;
+  to: string | null;
+  endpoints: LadderEndpoint[];
+  endpointIdx: Map<string, number>;
+  messages: LadderMessage[];
+  tracker: OfferAnswerTracker;
+}
+
 /** Read a pcap or pcapng capture and return its SIP calls. */
 export function buildLadder(input: Uint8Array | ArrayBuffer | ArrayBufferView, { sipPort = 5060 }: LadderOptions = {}): Ladder {
   const packets = parsePcap(input);
@@ -246,8 +222,8 @@ export function buildLadder(input: Uint8Array | ArrayBuffer | ArrayBufferView, {
     if (!call) {
       call = {
         id, from: msg.fromUri, to: msg.toUri,
-        endpoints: [], endpointIdx: new Map(), messages: [], seen: new Set(),
-        offeredRequests: new Set(), lateOffer: new Set(), offers: [],
+        endpoints: [], endpointIdx: new Map(), messages: [],
+        tracker: createOfferAnswerTracker({ maxOffers: Infinity }),
       };
       calls.set(id, call);
     }
@@ -263,13 +239,17 @@ export function buildLadder(input: Uint8Array | ArrayBuffer | ArrayBufferView, {
       ep.agent ||= agent;
     }
 
-    // the same datagram again on the same hop = retransmission (timer A/E/G)
-    const fp = `${r.src}>${r.dst}|${r.raw}`;
-    const retransmission = call.seen.has(fp);
-    call.seen.add(fp);
+    const index = call.messages.length;
+    // the same datagram again on the same hop is a retransmission (timer A/E/G)
+    const oa = call.tracker.observe(msg, { stepIndex: index, hop: { src: r.src, dst: r.dst }, raw: r.raw });
+    let negotiation: LadderMessage["negotiation"] = null;
+    if (oa.negotiation) {
+      const { offerStep, answerStep: _answerStep, ...result } = oa.negotiation;
+      negotiation = { offerIndex: offerStep!, ...result };
+    }
 
-    const m: LadderMessage = {
-      index: call.messages.length,
+    call.messages.push({
+      index,
       ts: r.ts,
       rel: 0,
       src: r.src,
@@ -285,32 +265,12 @@ export function buildLadder(input: Uint8Array | ArrayBuffer | ArrayBufferView, {
       branch: topViaBranch(msg),
       fromTag: msg.fromTag,
       toTag: msg.toTag,
-      retransmission,
+      retransmission: oa.retransmission,
       sdp: msg.sdp,
-      sdpRole: null,
-      negotiation: null,
+      sdpRole: oa.role,
+      negotiation,
       raw: r.raw,
-    };
-    if (msg.sdp && !retransmission) {
-      m.sdpRole = sdpRole(msg, call);
-      if (m.sdpRole === "offer") {
-        call.offers.push(m);
-      } else {
-        // pair with the offer that crossed the same hop in the other direction
-        const offer = [...call.offers].reverse().find((o) => o.src === m.dst && o.dst === m.src)
-          ?? call.offers[call.offers.length - 1];
-        if (offer?.sdp) {
-          try {
-            m.negotiation = { offerIndex: offer.index, ...negotiate(offer.sdp, msg.sdp) };
-          } catch {
-            // leave negotiation null
-          }
-        }
-      }
-    } else if (msg.sdp) {
-      m.sdpRole = call.messages.find((x) => x.raw === r.raw && x.sdpRole)?.sdpRole ?? null;
-    }
-    call.messages.push(m);
+    });
   }
 
   const out = [...calls.values()].map((c): LadderCall => {
