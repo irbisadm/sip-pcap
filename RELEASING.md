@@ -18,10 +18,9 @@ npm trust github @irbisadm/sip-pcap --file release.yml --repo irbisadm/sip-pcap 
 npm trust list @irbisadm/sip-pcap
 ```
 
-If npm refuses because the package does not exist yet, publish the first version
-once by hand from a clean checkout of its tag (`npm ci && npm publish --access public`;
-`prepack` builds `dist/`), then register the trust and let CI publish every later
-version.
+This was done before 0.1.0. npm accepted it while the package did not exist yet and
+reserved the name with a placeholder version `0.0.0-stage` ("Temporary package
+placeholder for staged publishing"); that version is npm's, not a release.
 
 ## Each release
 
@@ -48,6 +47,13 @@ version.
      release notes;
    - creates the GitHub Release (skipped if it exists, so the job can be re-run);
    - publishes to npm (skipped if the version is already there).
+
+   If the publish step fails with `403 … You cannot publish over the previously
+   published versions`, check whether the version is in fact on npm
+   (`curl -s https://registry.npmjs.org/@irbisadm/sip-pcap/X.Y.Z`): for v0.1.0 the
+   upload succeeded and a second request of the same `npm publish` got the 403. Re-run
+   the failed job (`gh run rerun <id> --failed`) once `npm view` shows the version;
+   both the release and the publish steps then report it as done.
 
 ## Pre-releases
 
