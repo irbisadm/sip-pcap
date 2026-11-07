@@ -1,0 +1,60 @@
+name: Release
+
+# A pushed v* tag gets a GitHub Release with the release notes of CHANGELOG.md and is
+# published to npm with trusted publishing (OIDC, no token; npm adds provenance).
+# Register the trust on npm once for this repository and this file:
+#   npm trust github @irbisadm/sip-pcap --file release.yml --repo irbisadm/sip-pcap --allow-publish
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write # npm trusted publishing
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: npm 11.5.1+ (trusted publishing)
+        run: npm install -g npm@11
+      - run: npm ci
+      - name: The tag matches package.json
+        run: test "$GITHUB_REF_NAME" = "v$(node -p 'require("./package.json").version')"
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Package contents
+        run: npm run check:pack
+      - name: Release notes
+        run: |
+          awk -v v="${GITHUB_REF_NAME#v}" 'index($0, "## [" v "]") == 1 {f = 1; next} /^## \[/ {f = 0} f' CHANGELOG.md > notes.md
+          test -s notes.md
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # skipped when the release exists, so that a failed npm step can be re-run
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "release $GITHUB_REF_NAME exists"
+            exit 0
+          fi
+          # a pre-release (v0.2.0-rc.1) must not become the latest release
+          case "$GITHUB_REF_NAME" in *-*) prerelease=--prerelease ;; *) prerelease= ;; esac
+          gh release create "$GITHUB_REF_NAME" $prerelease --title "$GITHUB_REF_NAME" --notes-file notes.md
+      - name: Publish to npm
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          if npm view "@irbisadm/sip-pcap@$version" version >/dev/null 2>&1; then
+            echo "@irbisadm/sip-pcap@$version is already on npm"
+            exit 0
+          fi
+          # a pre-release (0.2.0-rc.1) must not become `latest`
+          case "$version" in *-*) tag=next ;; *) tag=latest ;; esac
+          npm publish --access public --tag "$tag"

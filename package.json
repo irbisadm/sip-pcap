@@ -8,22 +8,55 @@
     "name": "Igor Sheko",
     "url": "https://www.linkedin.com/in/irbisadm/"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/irbisadm/sip-pcap.git"
+  },
+  "homepage": "https://github.com/irbisadm/sip-pcap#readme",
+  "bugs": "https://github.com/irbisadm/sip-pcap/issues",
+  "keywords": [
+    "sip",
+    "sdp",
+    "pcap",
+    "pcapng",
+    "voip",
+    "webrtc",
+    "offer-answer",
+    "rfc3264",
+    "rfc3261",
+    "ladder",
+    "wireshark",
+    "browser",
+    "web-worker"
+  ],
   "type": "module",
-  "private": true,
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    },
+    "./package.json": "./package.json"
   },
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
   "sideEffects": false,
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p .",
-    "typecheck": "tsc -p . --noEmit && tsc -p test",
-    "test": "node --import tsx --test test/*.test.ts"
+    "typecheck": "tsc -p . --noEmit && npm run build && tsc -p test && tsc -p test/types",
+    "pretest": "npm run build",
+    "test": "node --import tsx --test test/*.test.ts",
+    "check:pack": "tsx scripts/check-pack.ts",
+    "prepack": "npm run build"
   },
   "dependencies": {
     "sdp-transform": "^3.0.0"

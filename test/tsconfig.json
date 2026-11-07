@@ -8,5 +8,5 @@
     "strictNullChecks": false,
     "noUnusedLocals": false
   },
-  "include": ["../src/**/*.ts", "./*.ts"]
+  "include": ["../src/**/*.ts", "./*.ts", "../scripts/*.ts"]
 }
