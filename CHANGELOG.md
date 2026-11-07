@@ -4,9 +4,9 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.0] - Unreleased
+## [Unreleased]
 
-First release. The code comes from the SIP ladder and `sip_dialog` tools of
+The first release, 0.1.0. The code comes from the SIP ladder and `sip_dialog` tools of
 webrtc.page, made into a standalone package.
 
 ### Added
