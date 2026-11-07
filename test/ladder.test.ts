@@ -1,5 +1,5 @@
-// Tests for the SIP ladder model (src/lib/sip-ladder.js) and the pcap paths it
-// depends on in sdp-sip.js: TCP reassembly, IPv4 fragments, non-standard ports.
+// Tests for buildLadder / summarizeLadder and the pcap paths they depend on:
+// TCP reassembly, IP fragments, non-standard ports, containers and link layers.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildLadder, summarizeLadder } from "../src/ladder.js";
@@ -7,8 +7,8 @@ import { parsePcap, reassembleSip } from "../src/pcap.js";
 import {
   udp, udpFragmented, tcp, classicPcap, pcapng, sip,
   ipv6Udp, ipv6UdpFragmented, ethernetV6, linuxSll2, ipv4Udp,
-} from "./lib/pcap-builder.js";
-import { proxyCallPcap, proxyCallFlow, ALICE, PROXY, BOB } from "./lib/sip-scenarios.js";
+} from "../src/testing/pcap-builder.js";
+import { proxyCallPcap, proxyCallFlow, ALICE, PROXY, BOB } from "../src/testing/sip-scenarios.js";
 
 const sdp = (ip: string, pts: number[]) => `v=0
 o=- 1 1 IN IP4 ${ip}

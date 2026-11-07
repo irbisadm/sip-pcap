@@ -1,5 +1,5 @@
-// Realistic SIP call through a proxy, used by test/sip-ladder.test.js and to
-// generate web/public/samples/sip-call-via-proxy.pcap (node web/scripts/gen-sip-sample.mjs).
+// Realistic SIP call through a proxy: Alice -> proxy -> Bob, INVITE to BYE, with an
+// SDP offer/answer on each hop. Used by tests and to generate sample captures.
 
 import { udp, classicPcap, sip } from "./pcap-builder.js";
 

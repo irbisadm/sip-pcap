@@ -1,5 +1,5 @@
-// Minimal pcap writer for tests and the SIP ladder sample capture: Ethernet +
-// IPv4 + UDP/TCP frames, IPv4 fragmentation, classic pcap container.
+// Minimal capture writer for tests and sample captures: Ethernet, IPv4/IPv6, UDP/TCP
+// frames, IP fragmentation, Linux cooked v2, classic pcap and pcapng containers.
 // Plain Uint8Array, no Node APIs.
 
 /** One captured frame: timestamp in ms since the Unix epoch (fractional) and frame bytes. */
