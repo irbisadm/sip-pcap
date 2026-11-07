@@ -1,0 +1,12 @@
+{
+  // Type-check the tests (run with tsx, not compiled).
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "..",
+    "types": ["node"],
+    "strictNullChecks": false,
+    "noUnusedLocals": false
+  },
+  "include": ["../src/**/*.ts", "./*.ts"]
+}

@@ -1,0 +1,37 @@
+{
+  "name": "@irbisadm/sip-pcap",
+  "version": "0.1.0",
+  "description": "SIP calls, hops and SDP offer/answer from pcap and pcapng captures. Runs in Node.js and browsers.",
+  "license": "MIT",
+  "author": {
+    "email": "i@irbisadm.dev",
+    "name": "Igor Sheko",
+    "url": "https://www.linkedin.com/in/irbisadm/"
+  },
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p .",
+    "typecheck": "tsc -p . --noEmit && tsc -p test",
+    "test": "node --import tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "sdp-transform": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/sdp-transform": "^3.0.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
