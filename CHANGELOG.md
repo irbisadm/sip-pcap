@@ -4,6 +4,30 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+Fixes from running the library over public capture files; see "Checked against real
+captures" in the README.
+
+### Added
+
+- PPPoE sessions over Ethernet and IP tunnels (IP-in-IP, 6in4, 4in6, 6in6) are decoded.
+- `ethernetPppoe` and `ipTunnel` in `@irbisadm/sip-pcap/testing`.
+
+### Changed
+
+- A request with a method that is not known but a valid SIP start line now counts as a
+  SIP message and is reported in `errors` by `buildLadder`; it used to be dropped silently.
+
+### Fixed
+
+- Other protocols are no longer taken for SIP: SSDP `NOTIFY * HTTP/1.1`, HTTP and RTSP
+  requests with a SIP method name made a false `(no Call-ID)` call. The first line now has
+  to be a whole SIP start line, on any port. The check also reads far enough for a long
+  request URI on a non-standard port.
+- An answer now pairs with the offer of its own CSeq number on its hop. A late `183` for
+  the INVITE, sent after an `UPDATE` exchange, was paired with the `UPDATE` offer.
+
 ## [0.1.0] — 2026-11-07
 
 First release. The code comes from the SIP ladder and `sip_dialog` tools of
