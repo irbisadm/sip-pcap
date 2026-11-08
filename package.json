@@ -1,6 +1,6 @@
 {
   "name": "@irbisadm/sip-pcap",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "SIP calls, hops and SDP offer/answer from pcap and pcapng captures. Runs in Node.js and browsers.",
   "license": "MIT",
   "author": {
@@ -60,7 +60,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@irbisadm/simple-sdp": "^1.3.0"
+    "@irbisadm/simple-sdp": "^1.4.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
