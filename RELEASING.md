@@ -22,6 +22,10 @@ This was done before 0.1.0. npm accepted it while the package did not exist yet 
 reserved the name with a placeholder version `0.0.0-stage` ("Temporary package
 placeholder for staged publishing"); that version is npm's, not a release.
 
+Register it again if the GitHub repository is ever deleted and recreated, even under
+the same name: after that, the 0.1.1 publish failed with `E404` on `PUT` until the old
+entry was revoked (`npm trust revoke`) and a new one created.
+
 ## Each release
 
 1. On `main`, the changes since the last release are under `## [Unreleased]` in
