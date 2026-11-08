@@ -14,7 +14,7 @@ test("@irbisadm/sip-pcap exports the public API", async () => {
 test("@irbisadm/sip-pcap/testing exports the capture builders and the proxy scenario", async () => {
   const testing = await import("@irbisadm/sip-pcap/testing");
   assert.deepEqual(Object.keys(testing).sort(), [
-    "ALICE", "BOB", "PROXY", "classicPcap", "ethernetV6", "ipv4Udp", "ipv6Udp", "ipv6UdpFragmented",
+    "ALICE", "BOB", "PROXY", "classicPcap", "ethernetPppoe", "ethernetV6", "ipTunnel", "ipv4Udp", "ipv6Udp", "ipv6UdpFragmented",
     "linuxSll2", "pcapng", "proxyCallFlow", "proxyCallPcap", "sip", "tcp", "udp", "udpFragmented",
   ]);
   const { buildLadder } = await import("@irbisadm/sip-pcap");

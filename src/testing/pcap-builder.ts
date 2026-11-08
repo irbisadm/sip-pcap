@@ -243,6 +243,24 @@ export function ethernetV6(ipPacket: Uint8Array): Uint8Array {
   return concat([ethernet(0x86dd), ipPacket]);
 }
 
+/** Ethernet frame with a PPPoE session around an IPv4 or IPv6 packet. */
+export function ethernetPppoe(ipPacket: Uint8Array): Uint8Array {
+  const h = new Uint8Array(8);
+  const dv = new DataView(h.buffer);
+  h[0] = 0x11; // version 1, type 1
+  dv.setUint16(2, 1); // session id
+  dv.setUint16(4, ipPacket.length + 2);
+  dv.setUint16(6, ipPacket[0] >> 4 === 6 ? 0x0057 : 0x0021);
+  return concat([ethernet(0x8864), h, ipPacket]);
+}
+
+/** An IP packet carried in an outer IPv4 or IPv6 packet (no link layer): IP-in-IP, 6in4, 4in6, 6in6. */
+export function ipTunnel({ src, dst, packet }: { src: string; dst: string; packet: Uint8Array }): Uint8Array {
+  const proto = packet[0] >> 4 === 6 ? 41 : 4;
+  if (src.includes(":")) return ipv6Packet({ src, dst, next: proto, body: packet });
+  return concat([ipv4Header({ src, dst, proto, payloadLen: packet.length }), packet]);
+}
+
 /** Linux cooked capture v2 (LINKTYPE 276) header around an IP packet. */
 export function linuxSll2(ipPacket: Uint8Array, etherType = 0x0800): Uint8Array {
   const h = new Uint8Array(20);

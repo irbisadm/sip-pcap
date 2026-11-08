@@ -178,6 +178,15 @@ function addFragment(frags: FragmentTable, key: string, offset: number, more: bo
   return out;
 }
 
+const ETHERTYPE_IPV4 = 0x0800;
+const ETHERTYPE_IPV6 = 0x86dd;
+const ETHERTYPE_PPPOE_SESSION = 0x8864;
+const PPP_IPV4 = 0x0021;
+const PPP_IPV6 = 0x0057;
+const IPPROTO_IPIP = 4;
+const IPPROTO_IPV6 = 41;
+const MAX_IP_TUNNEL_DEPTH = 4;
+
 // Strip link/IP/transport layers, return a UDP/TCP payload with endpoints.
 function decodeFrame(frame: Uint8Array, linkType: number, ts: number, frags: FragmentTable): Packet | null {
   const dv = dataView(frame);
@@ -214,6 +223,21 @@ function decodeFrame(frame: Uint8Array, linkType: number, ts: number, frags: Fra
     return null;
   }
 
+  if (etherType === ETHERTYPE_PPPOE_SESSION) {
+    // PPPoE session header (6 bytes), then the PPP protocol
+    if (off + 8 > frame.length) return null;
+    const ppp = dv.getUint16(off + 6);
+    if (ppp !== PPP_IPV4 && ppp !== PPP_IPV6) return null;
+    etherType = ppp === PPP_IPV4 ? ETHERTYPE_IPV4 : ETHERTYPE_IPV6;
+    off += 8;
+  }
+  return decodeIp(frame, off, etherType, ts, frags, 0);
+}
+
+// An IP packet at `off`. IP-in-IP and IPv6-in-IP tunnels are followed: the inner
+// packet is the one between the SIP endpoints.
+function decodeIp(frame: Uint8Array, off: number, etherType: number, ts: number, frags: FragmentTable, depth: number): Packet | null {
+  const dv = dataView(frame);
   let proto: number;
   let srcIp: string;
   let dstIp: string;
@@ -267,6 +291,11 @@ function decodeFrame(frame: Uint8Array, linkType: number, ts: number, frags: Fra
     }
   } else {
     return null;
+  }
+
+  if (proto === IPPROTO_IPIP || proto === IPPROTO_IPV6) {
+    if (depth >= MAX_IP_TUNNEL_DEPTH) return null;
+    return decodeIp(l4, 0, proto === IPPROTO_IPIP ? ETHERTYPE_IPV4 : ETHERTYPE_IPV6, ts, frags, depth + 1);
   }
 
   const lv = dataView(l4);
