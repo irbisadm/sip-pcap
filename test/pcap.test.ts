@@ -126,3 +126,48 @@ test("errors: too small, unknown magic", () => {
   // @ts-expect-error not bytes
   assert.throws(() => parsePcap("pcap"), /expected Uint8Array/);
 });
+
+// ─── what is not SIP, found on real captures ─────────────────────────────────
+for (const [name, payload] of [
+  ["SSDP NOTIFY", "NOTIFY * HTTP/1.1\r\nHost: 239.255.255.250:1900\r\n\r\n"],
+  ["SSDP M-SEARCH", "M-SEARCH * HTTP/1.1\r\nHost: 239.255.255.250:1900\r\n\r\n"],
+  ["HTTP OPTIONS", "OPTIONS / HTTP/1.1\r\nHost: x\r\n\r\n"],
+  ["HTTP with a SIP method", "MESSAGE /x HTTP/1.1\r\nHost: x\r\n\r\n"],
+  ["RTSP OPTIONS", "OPTIONS rtsp://x/ RTSP/1.0\r\nCSeq: 1\r\n\r\n"],
+  ["plain words", "hello world\r\n"],
+  ["plain words, no line end", "hello world"],
+] as const) {
+  test(`not SIP: ${name}, on any port, over UDP and TCP`, () => {
+    const a = { src: "10.0.0.1", dst: "10.0.0.2" };
+    for (const frame of [
+      udp({ ...a, sport: 1900, dport: 1900, payload }),
+      udp({ ...a, payload }),
+      tcp({ ...a, sport: 40000, dport: 80, seq: 1, payload }),
+      tcp({ ...a, sport: 40000, dport: 5060, seq: 1, payload }),
+    ]) {
+      assert.deepEqual(reassembleSip(parsePcap(classicPcap([{ ts: 0, frame }]))), []);
+    }
+  });
+}
+
+test("a request URI longer than a short peek is still found on any port", () => {
+  const long = sip(`INVITE sip:${"a".repeat(300)}@x SIP/2.0`, hdrs("1 INVITE"));
+  const frame = udp({ src: "10.0.0.1", dst: "10.0.0.2", sport: 7000, dport: 7000, payload: long });
+  assert.equal(reassembleSip(parsePcap(classicPcap([{ ts: 0, frame }]))).length, 1);
+});
+
+test("TCP on any port: a start line split between two segments is found", () => {
+  const a = { src: "10.0.0.1", dst: "10.0.0.2", sport: 40000, dport: 7000 };
+  const bytes = new TextEncoder().encode(invite);
+  const buf = classicPcap([
+    { ts: 0, frame: tcp({ ...a, seq: 1, payload: bytes.subarray(0, 20) }) },
+    { ts: 1, frame: tcp({ ...a, seq: 21, payload: bytes.subarray(20) }) },
+  ]);
+  assert.deepEqual(reassembleSip(parsePcap(buf)).map((m) => m.raw), [invite]);
+});
+
+test("TCP: an HTTP request after SIP on the same stream does not resync as SIP", () => {
+  const bye = sip("BYE sip:b@x SIP/2.0", hdrs("2 BYE"));
+  const buf = classicPcap([{ ts: 0, frame: tcp({ src: "10.0.0.1", dst: "10.0.0.2", sport: 40000, dport: 5060, seq: 1, payload: "garbage\r\nOPTIONS / HTTP/1.1\r\nHost: x\r\n\r\n" + bye }) }]);
+  assert.deepEqual(reassembleSip(parsePcap(buf)).map((m) => m.raw), [bye]);
+});

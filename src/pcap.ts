@@ -308,16 +308,28 @@ function ipv6Str(dv: DataView, off: number): string {
 
 // ─── SIP reassembly ─────────────────────────────────────────────────────────
 
-const SIP_START_RE = /^(INVITE|ACK|BYE|CANCEL|REGISTER|OPTIONS|INFO|PRACK|UPDATE|SUBSCRIBE|NOTIFY|REFER|MESSAGE|PUBLISH)\s|^SIP\/2\.0\s/;
-const SIP_LINE_RE = /(^|\r?\n)((INVITE|ACK|BYE|CANCEL|REGISTER|OPTIONS|INFO|PRACK|UPDATE|SUBSCRIBE|NOTIFY|REFER|MESSAGE|PUBLISH) \S+ SIP\/2\.0|SIP\/2\.0 \d{3} )/;
+const SIP_TOKEN = "[A-Za-z0-9\\-.!%*_+`'~]+"; // RFC 3261 token: extension methods count too
+const KNOWN_METHODS = "INVITE|ACK|BYE|CANCEL|REGISTER|OPTIONS|INFO|PRACK|UPDATE|SUBSCRIBE|NOTIFY|REFER|MESSAGE|PUBLISH";
+const SIP_REQUEST_LINE = new RegExp(`^${SIP_TOKEN} +\\S+ +SIP/2\\.0[ \\t]*$`);
+const SIP_STATUS_LINE = /^SIP\/2\.0 +\d{3}(?:[ \t]|$)/;
+// A start line cut off by the end of the data (a TCP segment, a truncated capture).
+const SIP_PARTIAL_LINE = new RegExp(`^(?:(?:${KNOWN_METHODS}) +\\S*(?: +S?I?P?/?2?\\.?0?)?|SIP/2\\.0 +\\d{0,3})$`);
+const SIP_LINE_RE = new RegExp(`(^|\\r?\\n)(${SIP_TOKEN} +\\S+ +SIP/2\\.0[ \\t]*(?=\\r?\\n)|SIP/2\\.0 +\\d{3}(?:[ \\t]|\\r?\\n))`);
+const START_LINE_PEEK = 8192;
 
+// The whole start line has to look like SIP: other text protocols use the same
+// words (`NOTIFY * HTTP/1.1` in SSDP, `OPTIONS / HTTP/1.1`, `OPTIONS rtsp://x RTSP/1.0`).
 function looksLikeSip(text: string): boolean {
-  return SIP_START_RE.test(text.trimStart());
+  const t = text.trimStart();
+  const eol = t.search(/[\r\n]/);
+  if (eol === -1) return SIP_PARTIAL_LINE.test(t);
+  const line = t.slice(0, eol);
+  return SIP_REQUEST_LINE.test(line) || SIP_STATUS_LINE.test(line);
 }
 
 // Peek at the first bytes only: cheap check before decoding a whole payload.
 function bytesLookLikeSip(bytes: Uint8Array): boolean {
-  return looksLikeSip(utf8.decode(bytes.subarray(0, 64)));
+  return looksLikeSip(utf8.decode(bytes.subarray(0, START_LINE_PEEK)));
 }
 
 function indexOfCrlfCrlf(b: Uint8Array, from: number): number {
