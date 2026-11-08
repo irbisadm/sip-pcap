@@ -199,6 +199,25 @@ test("Linux cooked capture v2 (LINKTYPE 276)", () => {
   assert.equal(r.calls[0].messages[0].src, "10.0.0.1:5060");
 });
 
+test("a request with an unknown method is reported in errors, not dropped", () => {
+  const pcap = classicPcap([
+    { ts: 0, frame: udp({ src: "10.0.0.1", dst: "10.0.0.2", payload: sip("FOOBAR sip:b@x SIP/2.0", base("1 FOOBAR")) }) },
+    { ts: 1, frame: udp({ src: "10.0.0.1", dst: "10.0.0.2", payload: sip("OPTIONS sip:b@x SIP/2.0", base("2 OPTIONS")) }) },
+  ]);
+  const r = buildLadder(pcap);
+  assert.equal(r.sipMessages, 2);
+  assert.equal(r.calls[0].messages.length, 1);
+  assert.equal(r.errors.length, 1);
+  assert.match(r.errors[0].error, /unrecognized start line: FOOBAR/);
+  assert.equal(r.errors[0].src, "10.0.0.1:5060");
+});
+
+test("SSDP traffic does not make a call", () => {
+  const ssdp = "NOTIFY * HTTP/1.1\r\nHost: 239.255.255.250:1900\r\nNT: upnp:rootdevice\r\n\r\n";
+  const r = buildLadder(classicPcap([{ ts: 0, frame: udp({ src: "10.0.0.1", dst: "239.255.255.250", sport: 1900, dport: 1900, payload: ssdp }) }]));
+  assert.deepEqual([r.packets, r.sipMessages, r.calls.length, r.errors.length], [1, 0, 0, 0]);
+});
+
 // ─── SDP problems are visible on the ladder ───────────────────────────────────
 test("ladder messages carry SDP warnings", () => {
   const broken = sdp("10.0.0.1", [0]).replace("s=-\n", "");

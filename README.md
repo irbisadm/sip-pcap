@@ -45,7 +45,9 @@ const ladder = buildLadder(await file.arrayBuffer());
 
 `input` is a pcap or pcapng capture as `Uint8Array`, `ArrayBuffer` or any
 `ArrayBufferView` (a Node.js `Buffer` works). SIP is found on `sipPort` and, on any
-other port, by content; `sipPort: null` uses content detection only.
+other port, by content; `sipPort: null` uses content detection only. Either way the
+first line has to be a SIP start line (`<method> <uri> SIP/2.0` or `SIP/2.0 <code>`), so
+HTTP, RTSP and SSDP are not taken for SIP.
 
 Returns:
 
@@ -53,7 +55,7 @@ Returns:
 {
   packets: 13,          // UDP/TCP packets decoded
   sipMessages: 13,      // SIP messages found
-  errors: [],           // [{ ts, src, dst, error }] messages that looked like SIP but did not parse
+  errors: [],           // [{ ts, src, dst, error }] SIP that did not parse, e.g. an unknown method
   calls: [{
     id: "a84b4c76e66710@pc33.example.com",   // Call-ID
     from: "sip:alice@example.com",
@@ -241,9 +243,9 @@ Rules (RFC 3264, RFC 6337):
   answers a late offer made in a reliable 1xx (found by the CSeq number in `RAck`);
 - a response with SDP is an answer if its request (same CSeq number and method)
   offered, otherwise it is a late offer;
-- an answer pairs with the offer that crossed the same hop in the opposite direction
-  when hops are known, else with the latest offer with the same CSeq number, else with
-  the latest offer;
+- an answer pairs with the offer that crossed the same hop in the opposite direction,
+  preferring one with the same CSeq number (`RAck` for PRACK), when hops are known;
+  else with the latest offer with the same CSeq number; else with the latest offer;
 - a retransmission does not change the state; it reports the role of the original.
 
 `hop` and `raw` are optional: without `hop`, pairing falls back to CSeq; without
@@ -296,16 +298,18 @@ proxyCallPcap();                // a full call Alice -> proxy -> Bob, INVITE to 
 ```
 
 Also: `udpFragmented`, `ipv4Udp`, `ipv6Udp`, `ipv6UdpFragmented`, `ethernetV6`,
-`linuxSll2`, `proxyCallFlow` (the same call as `[ms, src, dst, text]` rows) and the
+`ethernetPppoe`, `ipTunnel`, `linuxSll2`, `proxyCallFlow` (the same call as `[ms, src, dst, text]` rows) and the
 scenario addresses `ALICE`, `PROXY`, `BOB`.
 
 ## Supported captures
 
 - Containers: classic pcap (microsecond and nanosecond, either byte order); pcapng
   (several sections and interfaces, `if_tsresol`, Enhanced and Simple Packet Blocks).
-- Link layers: Ethernet (with 802.1Q / QinQ tags), raw IP (LINKTYPE 101, 12, 14,
-  228, 229), BSD loopback (0, 108), Linux cooked capture v1 (113) and v2 (276).
-- Network: IPv4 and IPv6, IPv6 extension headers, IP fragment reassembly (both).
+- Link layers: Ethernet (with 802.1Q / QinQ tags and PPPoE sessions), raw IP (LINKTYPE
+  101, 12, 14, 228, 229), BSD loopback (0, 108), Linux cooked capture v1 (113) and v2
+  (276).
+- Network: IPv4 and IPv6, IPv6 extension headers, IP fragment reassembly (both), IP
+  tunnels (IP-in-IP, 6in4, 4in6, 6in6; endpoints are those of the inner packet).
 - Transport: UDP; TCP ordered by sequence number with retransmitted bytes dropped,
   split into messages by `Content-Length` (in bytes), resyncing when the capture
   starts mid-message.
@@ -316,6 +320,43 @@ scenario addresses `ALICE`, `PROXY`, `BOB`.
 - SIP over plain WebSocket is not decoded yet.
 - RTP is not analysed; only the SDP that describes it.
 - SCTP is not supported.
+- The SIP copy inside an ICMP error is not treated as a message.
+
+## Checked against real captures
+
+The automated tests build their captures in memory. As a one-off check on 2026-11-08,
+the library was also run over 61 public capture files, with `tshark` as an independent
+reference. This is **not** part of `npm test`, CI or the release process, the captures
+are not in this repository (most have no clear license), and the result describes that
+run, not every later version.
+
+Sources: [Wireshark SampleCaptures](https://wiki.wireshark.org/SampleCaptures),
+[goffinet/sip_captures](https://github.com/goffinet/sip_captures),
+[sngrep `tests/`](https://github.com/irontec/sngrep/tree/master/tests),
+[Wireshark `test/captures`](https://github.com/wireshark/wireshark/tree/master/test/captures)
+and `SIP.pcap` from
+[Malcolm-Test-Artifacts](https://github.com/idaholab/Malcolm-Test-Artifacts).
+
+Version 0.1.0 did not crash on any file and agreed with `tshark` on the number of SIP
+messages in 56 of them. The run found these problems, fixed in 0.1.1:
+
+| Problem in 0.1.0 | Effect on the run |
+|---|---|
+| SSDP `NOTIFY * HTTP/1.1` taken for SIP; HTTP and RTSP `OPTIONS` affected in the same way | 656 false messages in one `(no Call-ID)` call |
+| SIP inside PPPoE not found | 64 messages lost |
+| SIP inside IP-in-IP not found | 2 messages lost |
+| Requests with an unknown method dropped silently (they now appear in `errors`) | 11 messages unreported |
+| A late `183` for the INVITE, after an `UPDATE` exchange, paired with the `UPDATE` offer | 2 wrong pairs |
+
+With the fixes, 59 of the 61 files agree with `tshark`. In the other two, `tshark`
+also counts the SIP copies inside ICMP errors (3 messages in each), which this library
+leaves out on purpose. In one of them the 11 unknown-method requests are reported in
+`errors` rather than as calls.
+
+What the run does not show: only the number of SIP messages, Call-IDs and SDP bodies was
+compared with `tshark`, not the content of parsed fields. Retransmission counts were not
+validated: they differ from `tshark` (550 here, 423 there) because the definitions
+differ, and the difference was not analysed further.
 
 ## Types
 

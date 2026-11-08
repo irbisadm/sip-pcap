@@ -178,6 +178,15 @@ function addFragment(frags: FragmentTable, key: string, offset: number, more: bo
   return out;
 }
 
+const ETHERTYPE_IPV4 = 0x0800;
+const ETHERTYPE_IPV6 = 0x86dd;
+const ETHERTYPE_PPPOE_SESSION = 0x8864;
+const PPP_IPV4 = 0x0021;
+const PPP_IPV6 = 0x0057;
+const IPPROTO_IPIP = 4;
+const IPPROTO_IPV6 = 41;
+const MAX_IP_TUNNEL_DEPTH = 4;
+
 // Strip link/IP/transport layers, return a UDP/TCP payload with endpoints.
 function decodeFrame(frame: Uint8Array, linkType: number, ts: number, frags: FragmentTable): Packet | null {
   const dv = dataView(frame);
@@ -214,6 +223,21 @@ function decodeFrame(frame: Uint8Array, linkType: number, ts: number, frags: Fra
     return null;
   }
 
+  if (etherType === ETHERTYPE_PPPOE_SESSION) {
+    // PPPoE session header (6 bytes), then the PPP protocol
+    if (off + 8 > frame.length) return null;
+    const ppp = dv.getUint16(off + 6);
+    if (ppp !== PPP_IPV4 && ppp !== PPP_IPV6) return null;
+    etherType = ppp === PPP_IPV4 ? ETHERTYPE_IPV4 : ETHERTYPE_IPV6;
+    off += 8;
+  }
+  return decodeIp(frame, off, etherType, ts, frags, 0);
+}
+
+// An IP packet at `off`. IP-in-IP and IPv6-in-IP tunnels are followed: the inner
+// packet is the one between the SIP endpoints.
+function decodeIp(frame: Uint8Array, off: number, etherType: number, ts: number, frags: FragmentTable, depth: number): Packet | null {
+  const dv = dataView(frame);
   let proto: number;
   let srcIp: string;
   let dstIp: string;
@@ -269,6 +293,11 @@ function decodeFrame(frame: Uint8Array, linkType: number, ts: number, frags: Fra
     return null;
   }
 
+  if (proto === IPPROTO_IPIP || proto === IPPROTO_IPV6) {
+    if (depth >= MAX_IP_TUNNEL_DEPTH) return null;
+    return decodeIp(l4, 0, proto === IPPROTO_IPIP ? ETHERTYPE_IPV4 : ETHERTYPE_IPV6, ts, frags, depth + 1);
+  }
+
   const lv = dataView(l4);
   if (proto === 17) {
     if (l4.length < 8) return null;
@@ -308,16 +337,28 @@ function ipv6Str(dv: DataView, off: number): string {
 
 // ─── SIP reassembly ─────────────────────────────────────────────────────────
 
-const SIP_START_RE = /^(INVITE|ACK|BYE|CANCEL|REGISTER|OPTIONS|INFO|PRACK|UPDATE|SUBSCRIBE|NOTIFY|REFER|MESSAGE|PUBLISH)\s|^SIP\/2\.0\s/;
-const SIP_LINE_RE = /(^|\r?\n)((INVITE|ACK|BYE|CANCEL|REGISTER|OPTIONS|INFO|PRACK|UPDATE|SUBSCRIBE|NOTIFY|REFER|MESSAGE|PUBLISH) \S+ SIP\/2\.0|SIP\/2\.0 \d{3} )/;
+const SIP_TOKEN = "[A-Za-z0-9\\-.!%*_+`'~]+"; // RFC 3261 token: extension methods count too
+const KNOWN_METHODS = "INVITE|ACK|BYE|CANCEL|REGISTER|OPTIONS|INFO|PRACK|UPDATE|SUBSCRIBE|NOTIFY|REFER|MESSAGE|PUBLISH";
+const SIP_REQUEST_LINE = new RegExp(`^${SIP_TOKEN} +\\S+ +SIP/2\\.0[ \\t]*$`);
+const SIP_STATUS_LINE = /^SIP\/2\.0 +\d{3}(?:[ \t]|$)/;
+// A start line cut off by the end of the data (a TCP segment, a truncated capture).
+const SIP_PARTIAL_LINE = new RegExp(`^(?:(?:${KNOWN_METHODS}) +\\S*(?: +S?I?P?/?2?\\.?0?)?|SIP/2\\.0 +\\d{0,3})$`);
+const SIP_LINE_RE = new RegExp(`(^|\\r?\\n)(${SIP_TOKEN} +\\S+ +SIP/2\\.0[ \\t]*(?=\\r?\\n)|SIP/2\\.0 +\\d{3}(?:[ \\t]|\\r?\\n))`);
+const START_LINE_PEEK = 8192;
 
+// The whole start line has to look like SIP: other text protocols use the same
+// words (`NOTIFY * HTTP/1.1` in SSDP, `OPTIONS / HTTP/1.1`, `OPTIONS rtsp://x RTSP/1.0`).
 function looksLikeSip(text: string): boolean {
-  return SIP_START_RE.test(text.trimStart());
+  const t = text.trimStart();
+  const eol = t.search(/[\r\n]/);
+  if (eol === -1) return SIP_PARTIAL_LINE.test(t);
+  const line = t.slice(0, eol);
+  return SIP_REQUEST_LINE.test(line) || SIP_STATUS_LINE.test(line);
 }
 
 // Peek at the first bytes only: cheap check before decoding a whole payload.
 function bytesLookLikeSip(bytes: Uint8Array): boolean {
-  return looksLikeSip(utf8.decode(bytes.subarray(0, 64)));
+  return looksLikeSip(utf8.decode(bytes.subarray(0, START_LINE_PEEK)));
 }
 
 function indexOfCrlfCrlf(b: Uint8Array, from: number): number {

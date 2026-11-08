@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parsePcap, reassembleSip } from "../src/index.js";
-import { udp, tcp, classicPcap, pcapng, sip, ipv4Udp } from "../src/testing/index.js";
+import { udp, tcp, classicPcap, pcapng, sip, ipv4Udp, ipv6Udp, ethernetPppoe, ipTunnel } from "../src/testing/index.js";
 
 const hdrs = (cseq: string) => ["Via: SIP/2.0/UDP 10.0.0.1;branch=z9hG4bKp", "From: <sip:a@x>;tag=a", "To: <sip:b@x>", "Call-ID: p@x", `CSeq: ${cseq}`];
 const invite = sip("INVITE sip:b@x SIP/2.0", hdrs("1 INVITE"));
@@ -125,4 +125,90 @@ test("errors: too small, unknown magic", () => {
   assert.throws(() => parsePcap(new Uint8Array([0x00, 0x11, 0x22, 0x33, 0x44, 0x55])), /unknown magic/);
   // @ts-expect-error not bytes
   assert.throws(() => parsePcap("pcap"), /expected Uint8Array/);
+});
+
+// ─── what is not SIP, found on real captures ─────────────────────────────────
+for (const [name, payload] of [
+  ["SSDP NOTIFY", "NOTIFY * HTTP/1.1\r\nHost: 239.255.255.250:1900\r\n\r\n"],
+  ["SSDP M-SEARCH", "M-SEARCH * HTTP/1.1\r\nHost: 239.255.255.250:1900\r\n\r\n"],
+  ["HTTP OPTIONS", "OPTIONS / HTTP/1.1\r\nHost: x\r\n\r\n"],
+  ["HTTP with a SIP method", "MESSAGE /x HTTP/1.1\r\nHost: x\r\n\r\n"],
+  ["RTSP OPTIONS", "OPTIONS rtsp://x/ RTSP/1.0\r\nCSeq: 1\r\n\r\n"],
+  ["plain words", "hello world\r\n"],
+  ["plain words, no line end", "hello world"],
+] as const) {
+  test(`not SIP: ${name}, on any port, over UDP and TCP`, () => {
+    const a = { src: "10.0.0.1", dst: "10.0.0.2" };
+    for (const frame of [
+      udp({ ...a, sport: 1900, dport: 1900, payload }),
+      udp({ ...a, payload }),
+      tcp({ ...a, sport: 40000, dport: 80, seq: 1, payload }),
+      tcp({ ...a, sport: 40000, dport: 5060, seq: 1, payload }),
+    ]) {
+      assert.deepEqual(reassembleSip(parsePcap(classicPcap([{ ts: 0, frame }]))), []);
+    }
+  });
+}
+
+test("a request URI longer than a short peek is still found on any port", () => {
+  const long = sip(`INVITE sip:${"a".repeat(300)}@x SIP/2.0`, hdrs("1 INVITE"));
+  const frame = udp({ src: "10.0.0.1", dst: "10.0.0.2", sport: 7000, dport: 7000, payload: long });
+  assert.equal(reassembleSip(parsePcap(classicPcap([{ ts: 0, frame }]))).length, 1);
+});
+
+test("TCP on any port: a start line split between two segments is found", () => {
+  const a = { src: "10.0.0.1", dst: "10.0.0.2", sport: 40000, dport: 7000 };
+  const bytes = new TextEncoder().encode(invite);
+  const buf = classicPcap([
+    { ts: 0, frame: tcp({ ...a, seq: 1, payload: bytes.subarray(0, 20) }) },
+    { ts: 1, frame: tcp({ ...a, seq: 21, payload: bytes.subarray(20) }) },
+  ]);
+  assert.deepEqual(reassembleSip(parsePcap(buf)).map((m) => m.raw), [invite]);
+});
+
+test("TCP: an HTTP request after SIP on the same stream does not resync as SIP", () => {
+  const bye = sip("BYE sip:b@x SIP/2.0", hdrs("2 BYE"));
+  const buf = classicPcap([{ ts: 0, frame: tcp({ src: "10.0.0.1", dst: "10.0.0.2", sport: 40000, dport: 5060, seq: 1, payload: "garbage\r\nOPTIONS / HTTP/1.1\r\nHost: x\r\n\r\n" + bye }) }]);
+  assert.deepEqual(reassembleSip(parsePcap(buf)).map((m) => m.raw), [bye]);
+});
+
+// ─── encapsulation ───────────────────────────────────────────────────────────
+const inner = { src: "10.0.0.1", dst: "10.0.0.2", payload: invite };
+const inner6 = { src: "2001:db8::1", dst: "2001:db8::2", payload: invite };
+
+test("PPPoE session over Ethernet, IPv4 and IPv6", () => {
+  const v4 = reassembleSip(parsePcap(classicPcap([{ ts: 0, frame: ethernetPppoe(ipv4Udp(inner)) }])));
+  assert.deepEqual(v4.map((m) => [m.src, m.raw]), [["10.0.0.1:5060", invite]]);
+  const v6 = reassembleSip(parsePcap(classicPcap([{ ts: 0, frame: ethernetPppoe(ipv6Udp(inner6)) }])));
+  assert.deepEqual(v6.map((m) => m.src), ["[2001:db8::1]:5060"]);
+});
+
+test("PPPoE frames that are not IP, or are cut short, are skipped", () => {
+  const lcp = ethernetPppoe(ipv4Udp(inner));
+  lcp[14 + 6] = 0xc0; lcp[14 + 7] = 0x21; // PPP LCP
+  assert.deepEqual(parsePcap(classicPcap([{ ts: 0, frame: lcp }])), []);
+  const cut = ethernetPppoe(ipv4Udp(inner)).subarray(0, 18);
+  assert.deepEqual(parsePcap(classicPcap([{ ts: 0, frame: cut }])), []);
+});
+
+test("IP tunnels: the inner endpoints are used, for 4in4, 6in4, 4in6 and 6in6", () => {
+  const out4 = { src: "192.0.2.1", dst: "192.0.2.2" };
+  const out6 = { src: "2001:db8:f::1", dst: "2001:db8:f::2" };
+  for (const [packet, want] of [
+    [ipTunnel({ ...out4, packet: ipv4Udp(inner) }), "10.0.0.1:5060"],
+    [ipTunnel({ ...out4, packet: ipv6Udp(inner6) }), "[2001:db8::1]:5060"],
+    [ipTunnel({ ...out6, packet: ipv4Udp(inner) }), "10.0.0.1:5060"],
+    [ipTunnel({ ...out6, packet: ipv6Udp(inner6) }), "[2001:db8::1]:5060"],
+  ] as const) {
+    const msgs = reassembleSip(parsePcap(classicPcap([{ ts: 0, frame: packet }], { linkType: 101 })));
+    assert.deepEqual(msgs.map((m) => [m.src, m.raw]), [[want, invite]]);
+  }
+});
+
+test("IP tunnels nested without end stop at a depth limit", () => {
+  let packet = ipv4Udp(inner);
+  for (let i = 0; i < 4; i++) packet = ipTunnel({ src: "192.0.2.1", dst: "192.0.2.2", packet });
+  assert.equal(parsePcap(classicPcap([{ ts: 0, frame: packet }], { linkType: 101 })).length, 1);
+  for (let i = 0; i < 1; i++) packet = ipTunnel({ src: "192.0.2.1", dst: "192.0.2.2", packet });
+  assert.deepEqual(parsePcap(classicPcap([{ ts: 0, frame: packet }], { linkType: 101 })), []);
 });

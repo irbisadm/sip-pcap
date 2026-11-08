@@ -126,6 +126,32 @@ test("re-INVITE on hold: second offer/answer pair, negotiated hold", () => {
   assert.equal(tracker.negotiated.hold, true);
 });
 
+test("a later answer on the hop pairs with the offer of its own CSeq, not the latest offer", () => {
+  const r = run([
+    [A, B, sip("INVITE sip:b@x SIP/2.0", hdrs("1 INVITE"), sdp([0, 8]))],
+    [B, A, sip("SIP/2.0 183 Session Progress", hdrs("1 INVITE"), sdp([0]))],
+    [A, B, sip("UPDATE sip:b@x SIP/2.0", hdrs("3 UPDATE"), sdp([8]))],
+    [B, A, sip("SIP/2.0 200 OK", hdrs("3 UPDATE"), sdp([8]))],
+    // the INVITE's SDP again, with new text so that it is not a retransmission
+    [B, A, sip("SIP/2.0 183 Session Progress", [...hdrs("1 INVITE"), "RSeq: 2"], sdp([0]))],
+  ]);
+  assert.deepEqual(r.map((x) => x.role), ["offer", "answer", "offer", "answer", "answer"]);
+  assert.equal(r[1].negotiation.offerStep, 0);
+  assert.equal(r[3].negotiation.offerStep, 2);
+  assert.equal(r[4].negotiation.offerStep, 0);
+  assert.deepEqual(r[4].negotiation.media[0].agreedCodecs.map((c) => c.codec), ["PCMU"]);
+});
+
+test("the same CSeq on another hop does not win over the offer on this hop", () => {
+  const C = "10.0.0.3:5060";
+  const r = run([
+    [A, B, sip("INVITE sip:b@x SIP/2.0", hdrs("1 INVITE"), sdp([0]))],
+    [A, C, sip("UPDATE sip:b@x SIP/2.0", hdrs("2 UPDATE"), sdp([8]))],
+    [B, A, sip("SIP/2.0 200 OK", hdrs("2 UPDATE"), sdp([0]))],
+  ]);
+  assert.equal(r[2].negotiation.offerStep, 0);
+});
+
 test("state follows offers and answers", () => {
   const tracker = createOfferAnswerTracker();
   assert.equal(tracker.state, "stable");
