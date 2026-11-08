@@ -4,6 +4,15 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Doubled spaces in an `m=` line no longer shift its fields or lose its codecs:
+  `m=audio  9 RTP/AVP 0` had no port and `9` as the protocol. `m=audio 9  RTP/AVP 0` had
+  an empty protocol and no warning; it now gets a `malformed-media` warning. Comes from
+  `@irbisadm/simple-sdp` 1.4.0, the new minimum version.
+
 ## [0.1.1] — 2026-11-08
 
 Fixes from running the library over public capture files; see "Checked against real
