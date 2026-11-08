@@ -84,8 +84,8 @@ interface TrackedOffer {
  * - a response with SDP is an answer if its request (same CSeq number and method)
  *   offered, otherwise it is a late offer;
  * - an answer pairs with the offer that crossed the same hop in the opposite
- *   direction when hops are known, else the latest offer with the same CSeq number,
- *   else the latest offer;
+ *   direction, preferring one with the same CSeq number (`RAck` for PRACK), when hops
+ *   are known; else the latest offer with the same CSeq number; else the latest offer;
  * - a retransmission (same raw text on the same hop) does not change the state.
  *
  * Roles come from the message itself rather than from what came before it, so a
@@ -127,16 +127,17 @@ export function createOfferAnswerTracker({ maxOffers = 50, maxFingerprints = Inf
   }
 
   function offerFor(msg: OfferAnswerMessage, hop: Hop | null): TrackedOffer | null {
-    if (hop) {
-      for (let i = offers.length - 1; i >= 0; i--) {
-        const o = offers[i];
-        if (o.hop && o.hop.src === hop.dst && o.hop.dst === hop.src) return o;
-      }
-    }
-    for (let i = offers.length - 1; i >= 0; i--) {
-      if (offers[i].seq === msg.cseq?.seq) return offers[i];
-    }
-    return offers[offers.length - 1] ?? null;
+    const seq = (msg.method === "PRACK" ? rackSeq(msg) : null) ?? msg.cseq?.seq;
+    const latest = (match: (o: TrackedOffer) => boolean) => {
+      for (let i = offers.length - 1; i >= 0; i--) if (match(offers[i])) return offers[i];
+      return null;
+    };
+    const onHop = (o: TrackedOffer) => !!hop && !!o.hop && o.hop.src === hop.dst && o.hop.dst === hop.src;
+    return latest((o) => onHop(o) && o.seq === seq)
+      ?? latest(onHop)
+      ?? latest((o) => o.seq === seq)
+      ?? offers[offers.length - 1]
+      ?? null;
   }
 
   function observe(msg: OfferAnswerMessage, { stepIndex, hop = null, raw, retransmission: known = false }: ObserveOptions = {}): ObserveResult {
