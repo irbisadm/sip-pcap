@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- A call whose INVITE was challenged with `401`/`407` and sent again with the next
+  CSeq number is reported by the outcome of the retry: `completed` with its timings,
+  not `407 Proxy Authentication Required`. Timings still count from the first INVITE.
+- SDP in a `3xx`–`6xx` response (a `488` or `606` listing what the UA supports) is no
+  longer taken as an answer: it has role `null` and no longer replaces the result of
+  an earlier `183`. Such a response returns the offer/answer state to `stable`.
+- SDP in a reply to `OPTIONS`, or in any method other than INVITE, ACK, PRACK and
+  UPDATE, is no longer taken as a late offer.
+
+### Added
+
+- `OfferAnswerMessage` accepts `statusCode`; a `parseSipMessage` result already has it.
+
+### Documentation
+
+- Limits: B2BUA/SBC legs with a new Call-ID, endpoints per `host:port`, what counts as
+  a retransmission, CSeq without direction, TCP stream keys, and fragments lost to
+  `tcpdump port 5060`.
+
 ## [0.1.2] — 2026-11-08
 
 ### Fixed

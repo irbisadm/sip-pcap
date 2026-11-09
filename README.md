@@ -237,12 +237,18 @@ tracker.pendingOffer; // { sdp, stepIndex } | null
 tracker.negotiated;   // the latest answered offer's negotiation | null
 ```
 
-Rules (RFC 3264, RFC 6337):
+Rules (RFC 3261 §13.2.1, RFC 3262, RFC 3311, RFC 3264, RFC 6337):
 
+- only INVITE, ACK, PRACK and UPDATE and their 1xx/2xx responses carry offers and
+  answers; SDP elsewhere (a `488` or `606` listing what the UA supports, a reply to
+  `OPTIONS`) gets role `null` and leaves the state alone. Pass `statusCode` (a
+  `parseSipMessage` result has it) so that error responses are recognised;
 - a request with SDP is an offer, except ACK (it answers a late offer) and PRACK that
   answers a late offer made in a reliable 1xx (found by the CSeq number in `RAck`);
-- a response with SDP is an answer if its request (same CSeq number and method)
-  offered, otherwise it is a late offer;
+- a 1xx/2xx response with SDP is an answer if its request (same CSeq number and
+  method) offered, otherwise it is a late offer;
+- a 3xx–6xx response to a request that offered rejects the offer: the state returns
+  to `stable` and `negotiated` keeps the previous result;
 - an answer pairs with the offer that crossed the same hop in the opposite direction,
   preferring one with the same CSeq number (`RAck` for PRACK), when hops are known;
   else with the latest offer with the same CSeq number; else with the latest offer;
@@ -321,6 +327,22 @@ scenario addresses `ALICE`, `PROXY`, `BOB`.
 - RTP is not analysed; only the SDP that describes it.
 - SCTP is not supported.
 - The SIP copy inside an ICMP error is not treated as a message.
+- Calls are grouped by Call-ID. A B2BUA or an SBC that sets a new Call-ID on its
+  outbound leg (most do) shows up as two calls; the legs are not correlated
+  (`X-CID`, `Session-ID` of RFC 7989).
+- An endpoint is a `host:port` as seen in the packet. SIP over TCP from ephemeral ports,
+  or a host behind NAT, can give one host several endpoints.
+- A retransmission is the same message text again on the same hop within a call. A
+  packet captured twice (on `-i any`, a VLAN sub-interface and its parent, or a SPAN
+  port) is therefore flagged as a retransmission too.
+- CSeq numbers are matched without the direction: each side keeps its own counter, so
+  a request from the callee with the same number as one from the caller can be
+  paired wrongly. Rare in practice.
+- TCP streams are keyed by address and port only: no SYN/FIN tracking, no 32-bit
+  sequence wraparound, and gaps from packets lost by the capture are not reported.
+- `tcpdump port 5060` keeps only the first fragment of a fragmented datagram (the
+  others have no UDP header); such datagrams cannot be reassembled and are dropped.
+  Capture with `udp` or by host instead.
 
 ## Checked against real captures
 
