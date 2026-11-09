@@ -161,10 +161,17 @@ function summarize(call: { messages: LadderMessage[] }): CallSummary {
       outcome: !final ? "pending" : code(final) < 300 ? "ok" : "failed",
     };
   }
-  const seq = first.cseq?.seq;
-  const invResp = msgs.filter((m) => m.kind === "response" && m.cseq?.method === "INVITE" && m.cseq?.seq === seq);
+  // The initial INVITE and its retries: an INVITE challenged with 401/407 is sent
+  // again with the next CSeq number (RFC 3261 §22.2), still without a To tag. A
+  // re-INVITE inside the dialog has a To tag and does not count.
+  const initialSeqs = new Set(msgs
+    .filter((m) => m.kind === "request" && m.method === "INVITE" && !m.toTag)
+    .map((m) => m.cseq?.seq));
+  if (initialSeqs.size === 0) initialSeqs.add(first.cseq?.seq);
+  const invResp = msgs.filter((m) => m.kind === "response" && m.cseq?.method === "INVITE" && initialSeqs.has(m.cseq?.seq));
   const ok = invResp.find((m) => code(m) >= 200 && code(m) < 300);
-  const fail = invResp.find((m) => code(m) >= 300);
+  // the last final error: a challenge followed by a retry that also fails reports the retry's code
+  const fail = [...invResp].reverse().find((m) => code(m) >= 300);
   const ringing = invResp.find((m) => code(m) >= 180 && code(m) < 200);
   const bye = msgs.find((m) => m.method === "BYE");
   const cancel = msgs.find((m) => m.method === "CANCEL");

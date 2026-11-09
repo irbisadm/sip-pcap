@@ -101,6 +101,55 @@ test("rejected call reports the final status", () => {
   assert.equal(c.outcome, "failed");
 });
 
+test("INVITE challenged with 407 and retried: completed, timings from the first INVITE", () => {
+  const A = "10.0.0.1", B = "10.0.0.2";
+  const withTag = (h: string[]) => h.map((x) => x.replace("To: <sip:b@x>", "To: <sip:b@x>;tag=bb"));
+  const auth = 'Proxy-Authorization: Digest username="a", realm="x", nonce="n", uri="sip:b@x", response="r"';
+  const pcap = classicPcap([
+    { ts: 0, frame: udp({ src: A, dst: B, payload: sip("INVITE sip:b@x SIP/2.0", base("1 INVITE"), sdp(A, [0])) }) },
+    { ts: 20, frame: udp({ src: B, dst: A, payload: sip("SIP/2.0 407 Proxy Authentication Required", [...withTag(base("1 INVITE")), 'Proxy-Authenticate: Digest realm="x", nonce="n"']) }) },
+    { ts: 21, frame: udp({ src: A, dst: B, payload: sip("ACK sip:b@x SIP/2.0", withTag(base("1 ACK"))) }) },
+    { ts: 25, frame: udp({ src: A, dst: B, payload: sip("INVITE sip:b@x SIP/2.0", [...base("2 INVITE"), auth], sdp(A, [0])) }) },
+    { ts: 90, frame: udp({ src: B, dst: A, payload: sip("SIP/2.0 180 Ringing", withTag(base("2 INVITE"))) }) },
+    { ts: 3000, frame: udp({ src: B, dst: A, payload: sip("SIP/2.0 200 OK", withTag(base("2 INVITE")), sdp(B, [0])) }) },
+    { ts: 3010, frame: udp({ src: A, dst: B, payload: sip("ACK sip:b@x SIP/2.0", withTag(base("2 ACK"))) }) },
+    { ts: 9000, frame: udp({ src: A, dst: B, payload: sip("BYE sip:b@x SIP/2.0", withTag(base("3 BYE"))) }) },
+  ]);
+  const c = buildLadder(pcap).calls[0];
+  assert.equal(c.status, "completed");
+  assert.equal(c.outcome, "ok");
+  assert.equal(c.ringMs, 90);
+  assert.equal(c.answerMs, 3000);
+  assert.equal(c.talkMs, 6000);
+});
+
+test("a challenged INVITE that is not retried reports the challenge", () => {
+  const A = "10.0.0.1", B = "10.0.0.2";
+  const pcap = classicPcap([
+    { ts: 0, frame: udp({ src: A, dst: B, payload: sip("INVITE sip:b@x SIP/2.0", base("1 INVITE")) }) },
+    { ts: 20, frame: udp({ src: B, dst: A, payload: sip("SIP/2.0 401 Unauthorized", base("1 INVITE")) }) },
+  ]);
+  const c = buildLadder(pcap).calls[0];
+  assert.equal(c.status, "401 Unauthorized");
+  assert.equal(c.outcome, "failed");
+});
+
+test("a re-INVITE rejected inside the dialog does not change a completed call", () => {
+  const A = "10.0.0.1", B = "10.0.0.2";
+  const withTag = (h: string[]) => h.map((x) => x.replace("To: <sip:b@x>", "To: <sip:b@x>;tag=bb"));
+  const pcap = classicPcap([
+    { ts: 0, frame: udp({ src: A, dst: B, payload: sip("INVITE sip:b@x SIP/2.0", base("1 INVITE"), sdp(A, [0])) }) },
+    { ts: 50, frame: udp({ src: B, dst: A, payload: sip("SIP/2.0 200 OK", withTag(base("1 INVITE")), sdp(B, [0])) }) },
+    { ts: 60, frame: udp({ src: A, dst: B, payload: sip("ACK sip:b@x SIP/2.0", withTag(base("1 ACK"))) }) },
+    { ts: 1000, frame: udp({ src: A, dst: B, payload: sip("INVITE sip:b@x SIP/2.0", withTag(base("2 INVITE")), sdp(A, [8])) }) },
+    { ts: 1020, frame: udp({ src: B, dst: A, payload: sip("SIP/2.0 488 Not Acceptable Here", withTag(base("2 INVITE"))) }) },
+    { ts: 5000, frame: udp({ src: A, dst: B, payload: sip("BYE sip:b@x SIP/2.0", withTag(base("3 BYE"))) }) },
+  ]);
+  const c = buildLadder(pcap).calls[0];
+  assert.equal(c.status, "completed");
+  assert.equal(c.answerMs, 50);
+});
+
 test("IPv4-fragmented INVITE is reassembled", () => {
   const big = sip("INVITE sip:b@x SIP/2.0", [...base("1 INVITE"), `X-Pad: ${"p".repeat(1500)}`], sdp("10.0.0.1", [111, 0]));
   const frames = udpFragmented({ src: "10.0.0.1", dst: "10.0.0.2", payload: big, mtu: 600 });
