@@ -14,10 +14,13 @@ export interface Hop {
 
 /**
  * What the tracker needs from a message. A `parseSipMessage` result fits.
- * `headers.rack` is used for PRACK (which INVITE it acknowledges).
+ * `headers.rack` is used for PRACK (which INVITE it acknowledges). `statusCode`
+ * tells a 1xx/2xx answer from SDP in an error response; without it every response
+ * is treated as 1xx/2xx.
  */
 export type OfferAnswerMessage = Pick<SipMessage, "kind" | "method" | "cseq" | "sdp"> & {
   headers?: SipMessage["headers"];
+  statusCode?: number | null;
 };
 
 export type SdpRole = "offer" | "answer";
@@ -36,7 +39,10 @@ export interface ObserveOptions {
 export type TrackedNegotiation = Negotiation & { offerStep: number | null; answerStep: number | null };
 
 export interface ObserveResult {
-  /** Null when the message has no SDP. For a retransmission, the role of the original message. */
+  /**
+   * Null when the message has no SDP, or its SDP takes no part in offer/answer (an
+   * error response, OPTIONS). For a retransmission, the role of the original message.
+   */
   role: SdpRole | null;
   /** Same message already seen on the same hop; the state is unchanged. */
   retransmission: boolean;
@@ -67,6 +73,9 @@ export interface TrackerOptions {
   maxFingerprints?: number;
 }
 
+/** Methods whose requests and 1xx/2xx responses take part in offer/answer. */
+const OFFER_ANSWER_METHODS = new Set(["INVITE", "ACK", "PRACK", "UPDATE"]);
+
 interface TrackedOffer {
   sdp: SdpSession;
   stepIndex: number | null;
@@ -77,12 +86,17 @@ interface TrackedOffer {
 /**
  * Create the offer/answer state of one call.
  *
- * Rules (RFC 3264, RFC 6337):
+ * Rules (RFC 3261 §13.2.1, RFC 3262, RFC 3311, RFC 3264, RFC 6337):
+ * - only INVITE, ACK, PRACK and UPDATE and their 1xx/2xx responses carry offers
+ *   and answers; SDP anywhere else (a 488 or 606 listing what the UA supports, an
+ *   OPTIONS reply) has no role and leaves the state alone;
  * - a request with SDP is an offer, except ACK (it answers a late offer) and PRACK
  *   after a late offer in a reliable 1xx (the INVITE is found by the CSeq number in
  *   `RAck`, or by the PRACK's own CSeq number when `RAck` is missing);
- * - a response with SDP is an answer if its request (same CSeq number and method)
- *   offered, otherwise it is a late offer;
+ * - a 1xx/2xx response with SDP is an answer if its request (same CSeq number and
+ *   method) offered, otherwise it is a late offer;
+ * - a 3xx-6xx response to a request that offered rejects that offer: the state goes
+ *   back to `stable` and the last negotiated result stays;
  * - an answer pairs with the offer that crossed the same hop in the opposite
  *   direction, preferring one with the same CSeq number (`RAck` for PRACK), when hops
  *   are known; else the latest offer with the same CSeq number; else the latest offer;
@@ -112,9 +126,13 @@ export function createOfferAnswerTracker({ maxOffers = 50, maxFingerprints = Inf
     return m ? parseInt(m[1], 10) : null;
   }
 
-  function roleOf(msg: OfferAnswerMessage): SdpRole {
+  const isRejection = (msg: OfferAnswerMessage) => msg.kind === "response" && (msg.statusCode ?? 0) >= 300;
+
+  function roleOf(msg: OfferAnswerMessage): SdpRole | null {
     const seq = msg.cseq?.seq;
     const key = `${seq}|${msg.cseq?.method}`;
+    if (!OFFER_ANSWER_METHODS.has((msg.kind === "request" ? msg.method : msg.cseq?.method) ?? "")) return null;
+    if (isRejection(msg)) return null;
     if (msg.kind === "request") {
       if (msg.method === "ACK") return "answer";
       if (msg.method === "PRACK" && lateOffers.has(rackSeq(msg) ?? seq)) return "answer";
@@ -148,6 +166,10 @@ export function createOfferAnswerTracker({ maxOffers = 50, maxFingerprints = Inf
     const step = stepIndex ?? null;
     let role: SdpRole | null = null;
     let negotiation: TrackedNegotiation | null = null;
+    if (isRejection(msg) && offeredRequests.has(`${msg.cseq?.seq}|${msg.cseq?.method}`)) {
+      state = "stable";
+      pendingOffer = null;
+    }
     if (msg.sdp) {
       role = roleOf(msg);
       if (role === "offer") {
@@ -155,7 +177,7 @@ export function createOfferAnswerTracker({ maxOffers = 50, maxFingerprints = Inf
         if (offers.length > maxOffers) offers.shift();
         state = "offer-pending";
         pendingOffer = { sdp: msg.sdp, stepIndex: step };
-      } else {
+      } else if (role === "answer") {
         const offer = offerFor(msg, hop);
         state = "stable";
         pendingOffer = null;

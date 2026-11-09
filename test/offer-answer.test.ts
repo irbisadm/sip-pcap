@@ -152,6 +152,45 @@ test("the same CSeq on another hop does not win over the offer on this hop", () 
   assert.equal(r[2].negotiation.offerStep, 0);
 });
 
+test("SDP in a 488 after an early answer has no role and keeps the early result", () => {
+  // the 488 body lists what the UA supports; it is not an answer to the INVITE
+  const tracker = createOfferAnswerTracker();
+  const r = run([
+    [A, B, sip("INVITE sip:b@x SIP/2.0", hdrs("1 INVITE"), sdp([0, 8, 101]))],
+    [B, A, sip("SIP/2.0 183 Session Progress", hdrs("1 INVITE"), sdp([8]))],
+    [B, A, sip("SIP/2.0 488 Not Acceptable Here", hdrs("1 INVITE"), sdp([18]))],
+  ], tracker);
+  assert.deepEqual(r.map((x) => x.role), ["offer", "answer", null]);
+  assert.equal(r[2].negotiation, null);
+  assert.deepEqual(tracker.negotiated.media[0].agreedCodecs.map((c) => c.codec), ["PCMA"]);
+  assert.equal(tracker.state, "stable");
+});
+
+test("a 488 to a re-INVITE rejects the offer: back to stable, the old result stays", () => {
+  const tracker = createOfferAnswerTracker();
+  run([
+    [A, B, sip("INVITE sip:b@x SIP/2.0", hdrs("1 INVITE"), sdp([0]))],
+    [B, A, sip("SIP/2.0 200 OK", hdrs("1 INVITE"), sdp([0]))],
+    [A, B, sip("ACK sip:b@x SIP/2.0", hdrs("1 ACK"))],
+    [A, B, sip("INVITE sip:b@x SIP/2.0", hdrs("2 INVITE"), sdp([9]))],
+  ], tracker);
+  assert.equal(tracker.state, "offer-pending");
+  run([[B, A, sip("SIP/2.0 488 Not Acceptable Here", hdrs("2 INVITE"))]], tracker);
+  assert.equal(tracker.state, "stable");
+  assert.equal(tracker.pendingOffer, null);
+  assert.equal(tracker.negotiated.offerStep, 0);
+});
+
+test("SDP in a 200 OK to OPTIONS is not a late offer", () => {
+  const tracker = createOfferAnswerTracker();
+  const r = run([
+    [A, B, sip("OPTIONS sip:b@x SIP/2.0", hdrs("1 OPTIONS"))],
+    [B, A, sip("SIP/2.0 200 OK", hdrs("1 OPTIONS"), sdp([0, 8]))],
+  ], tracker);
+  assert.deepEqual(r.map((x) => x.role), [null, null]);
+  assert.equal(tracker.state, "stable");
+});
+
 test("state follows offers and answers", () => {
   const tracker = createOfferAnswerTracker();
   assert.equal(tracker.state, "stable");
