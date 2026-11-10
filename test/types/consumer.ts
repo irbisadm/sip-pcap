@@ -3,13 +3,13 @@
 import {
   buildLadder, summarizeLadder, parseSdp, negotiate, parseSipMessage, parsePcap, reassembleSip,
   createOfferAnswerTracker,
-  type Ladder, type LadderCall, type LadderMessage, type LadderSummary, type SdpSession,
+  type Ladder, type LadderCall, type LadderMessage, type CallList, type SdpSession,
   type SdpNegotiation, type SdpResolvedCodec, type SipMessage, type ObserveResult,
 } from "@irbisadm/sip-pcap";
 import { proxyCallPcap, classicPcap, udp, sip } from "@irbisadm/sip-pcap/testing";
 
 const ladder: Ladder = buildLadder(proxyCallPcap(), { sipPort: null });
-const summary: LadderSummary = summarizeLadder(ladder);
+const summary: CallList = summarizeLadder(ladder);
 const call: LadderCall | undefined = ladder.calls[0];
 const outcome: "ok" | "failed" | "cancelled" | "pending" | undefined = summary.calls[0]?.outcome;
 const msg: LadderMessage | undefined = call?.messages[0];

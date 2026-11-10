@@ -20,5 +20,5 @@ export type {
 export { buildLadder, summarizeLadder } from "./ladder.js";
 export type {
   Ladder, LadderOptions, LadderCall, LadderMessage, LadderEndpoint, LadderError,
-  LadderSummary, LadderCallSummary, CallSummary, CallOutcome,
+  CallList, CallListItem, CallResult, CallOutcome,
 } from "./ladder.js";

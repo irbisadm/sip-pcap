@@ -365,7 +365,7 @@ exported from the package root, including the `@irbisadm/simple-sdp` types used 
 API, so a project under pnpm does not need simple-sdp as its own dependency:
 
 ```ts
-import type { Ladder, LadderCall, LadderSummary, SdpSession, SdpNegotiation } from "@irbisadm/sip-pcap";
+import type { Ladder, LadderCall, CallList, SdpSession, SdpNegotiation } from "@irbisadm/sip-pcap";
 ```
 
 ## Development

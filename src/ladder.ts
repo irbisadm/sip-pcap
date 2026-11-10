@@ -44,7 +44,8 @@ export interface LadderMessage extends RawSipMessage,
 
 export type CallOutcome = "ok" | "failed" | "cancelled" | "pending";
 
-export interface CallSummary {
+/** How a call ended: status, outcome and, for INVITE calls, timings. */
+export interface CallResult {
   /** Method of the first request. */
   method: string;
   /** E.g. `completed`, `cancelled`, `486 Busy Here`. */
@@ -59,7 +60,7 @@ export interface CallSummary {
 }
 
 /** One call: all messages with the same Call-ID. */
-export interface LadderCall extends CallSummary {
+export interface LadderCall extends CallResult {
   /** Call-ID. */
   id: string;
   from: string | null;
@@ -88,8 +89,8 @@ export interface Ladder {
   errors: LadderError[];
 }
 
-/** A call of `summarizeLadder`: the fields of `LadderCall` a call list shows. */
-export interface LadderCallSummary
+/** A row of `CallList`: the fields of `LadderCall` a call list shows. */
+export interface CallListItem
   extends Pick<LadderCall, "id" | "from" | "to" | "method" | "status" | "outcome" | "durationMs"> {
   /** Index in `ladder.calls`. */
   index: number;
@@ -99,10 +100,11 @@ export interface LadderCallSummary
   hosts: number;
 }
 
-export interface LadderSummary extends Pick<Ladder, "packets" | "sipMessages"> {
+/** `summarizeLadder()`: the calls of a ladder without their messages, e.g. for a page fed by a worker. */
+export interface CallList extends Pick<Ladder, "packets" | "sipMessages"> {
   /** Number of unparsable messages. */
   errors: number;
-  calls: LadderCallSummary[];
+  calls: CallListItem[];
 }
 
 /** `sipPort` is passed to `reassembleSip`. */
@@ -126,7 +128,7 @@ function labelOf(msg: SipMessage): string {
 
 const code = (m: LadderMessage): number => m.statusCode ?? 0;
 
-function summarize(call: { messages: LadderMessage[] }): CallSummary {
+function callResult(call: { messages: LadderMessage[] }): CallResult {
   const msgs = call.messages;
   const first = msgs.find((m) => m.kind === "request" && !m.retransmission) ?? msgs[0];
   const method = first?.method ?? "?";
@@ -258,7 +260,7 @@ export function buildLadder(input: Uint8Array | ArrayBuffer | ArrayBufferView, {
       durationMs: (c.messages[c.messages.length - 1]?.ts ?? t0) - t0,
       endpoints: c.endpoints,
       messages: c.messages,
-      ...summarize(c),
+      ...callResult(c),
     };
     return { ...base, mermaid: mermaidOf(base) };
   });
@@ -271,7 +273,7 @@ export function buildLadder(input: Uint8Array | ArrayBuffer | ArrayBufferView, {
  * What a call list needs, without the messages: the browser tool's worker keeps
  * the full result and sends the page only this, then one call at a time.
  */
-export function summarizeLadder(r: Ladder): LadderSummary {
+export function summarizeLadder(r: Ladder): CallList {
   return {
     packets: r.packets,
     sipMessages: r.sipMessages,
