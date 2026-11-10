@@ -32,6 +32,5 @@ export function parseSdp(text: string): SdpSession {
 
 /** RFC 3264 offer/answer: what the two sides agreed on, per media section of the answer. */
 export function negotiate(offer: SdpSession, answer: SdpSession): SdpNegotiation {
-  if (!offer || !answer) throw new Error("negotiate: need both offer and answer");
   return sdpNegotiator.negotiate(offer.model, answer.model);
 }

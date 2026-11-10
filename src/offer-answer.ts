@@ -183,11 +183,7 @@ export function createOfferAnswerTracker({ maxOffers = 50, maxFingerprints = Inf
         state = "stable";
         pendingOffer = null;
         if (offer) {
-          try {
-            negotiation = { ...negotiate(offer.sdp, msg.sdp), offerStep: offer.stepIndex, answerStep: step };
-          } catch {
-            negotiation = null;
-          }
+          negotiation = { ...negotiate(offer.sdp, msg.sdp), offerStep: offer.stepIndex, answerStep: step };
           negotiated = negotiation;
         }
       }

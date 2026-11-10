@@ -3,7 +3,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseSdp, negotiate } from "../src/index.js";
-import type { SdpSession } from "../src/sdp.js";
 import { sdpOffer, sdpAnswer, sipSdp } from "./lib/sdp-samples.js";
 
 test("parseSdp: the resolved view, the model and warnings", () => {
@@ -45,10 +44,6 @@ test("negotiate: works on parseSdp results", () => {
   assert.deepEqual(audio.codecs.map((c) => c.encodingName), ["opus"]);
   assert.equal(audio.offerIndex, 0);
   assert.equal(video.rejected, true);
-});
-
-test("negotiate: missing side throws", () => {
-  assert.throws(() => negotiate(parseSdp(sdpOffer), null as unknown as SdpSession), /need both/);
 });
 
 // ─── lenient parsing of SDP that breaks RFC 8866 ─────────────────────────────
