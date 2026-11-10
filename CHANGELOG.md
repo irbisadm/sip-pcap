@@ -61,6 +61,12 @@ instead of defining its own.
   an earlier `183`. Such a response returns the offer/answer state to `stable`.
 - SDP in a reply to `OPTIONS`, or in any method other than INVITE, ACK, PRACK and
   UPDATE, is no longer taken as a late offer.
+- `headers` is a prototype-less object: a header named `constructor`, `__proto__` or
+  `toString` became `[Object, value]` or changed the object's prototype.
+- SDP in a multipart body is the part whose `Content-Type` is `application/sdp`, split by
+  the declared `boundary` (case-sensitive, quoted or not), also in nested multipart parts.
+  The text `application/sdp` elsewhere in the body (another part, a preamble) no longer
+  decides which part is taken, and the part's media type is matched case-insensitively.
 - A rejected offer (3xx–6xx to the request that made it) no longer pairs with answers:
   a later answer that matched no offer by hop or CSeq used to fall back to it.
 

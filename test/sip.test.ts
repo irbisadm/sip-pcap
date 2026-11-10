@@ -131,6 +131,44 @@ test("multipart body without an SDP part", () => {
   assert.equal(p.sdp, null);
 });
 
+const multipart = (contentType: string, body: string[]) => parseSipMessage(sip([
+  "INVITE sip:b@x SIP/2.0", "Call-ID: mp@x", "CSeq: 1 INVITE", `Content-Type: ${contentType}`, "MIME-Version: 1.0",
+], body.join("\r\n")));
+
+test("multipart: the part is found by its Content-Type, not by text elsewhere in the body", () => {
+  const p = multipart("multipart/mixed; boundary=b1", [
+    "--b1", "Content-Type: text/plain", "", "see the application/sdp part below", "",
+    "--b1", "Content-Type: Application/SDP", "", sdpBody.trimEnd(),
+    "--b1--", "",
+  ]);
+  assert.equal(p.sdp?.media[0].port, 49170);
+  assert.deepEqual(p.sdp?.warnings, []);
+});
+
+test("multipart: quoted, case-sensitive boundary; preamble and epilogue are ignored", () => {
+  const p = multipart('multipart/mixed; boundary="Ab:C d"', [
+    "preamble mentioning --ab:c d", "--Ab:C d", "Content-Type: application/sdp", "", sdpBody.trimEnd(),
+    "--Ab:C d--", "epilogue",
+  ]);
+  assert.equal(p.sdp?.model.media.length, 1);
+  assert.deepEqual(p.sdp?.warnings, []);
+});
+
+test("multipart: SDP inside a nested multipart part", () => {
+  const p = multipart("multipart/mixed;boundary=outer", [
+    "--outer", "Content-Type: application/isup", "", "\x01\x00",
+    "--outer", "Content-Type: multipart/alternative; boundary=inner", "",
+    "--inner", "Content-Type: application/sdp", "", sdpBody.trimEnd(), "--inner--",
+    "--outer--", "",
+  ]);
+  assert.equal(p.sdp?.media[0].port, 49170);
+});
+
+test("multipart without a boundary parameter: the first --line is the boundary", () => {
+  const p = multipart("multipart/mixed", ["--x", "Content-Type: application/sdp", "", sdpBody.trimEnd(), "--x--", ""]);
+  assert.equal(p.sdp?.media[0].port, 49170);
+});
+
 test("non-SDP body is kept but not parsed", () => {
   const p = parseSipMessage(sip(["MESSAGE sip:b@x SIP/2.0", "Call-ID: m@x", "CSeq: 1 MESSAGE", "Content-Type: text/plain"], "v=0 is not SDP here"));
   assert.equal(p.sdp, null);

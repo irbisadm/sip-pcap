@@ -207,7 +207,10 @@ const msg = parseSipMessage(rawText);
 ```
 
 Handles CRLF and LF line endings, folded headers and compact header forms (`i`, `f`,
-`t`, `v`, `m`, `l`, `c`, …). Throws on an empty or unrecognized start line.
+`t`, `v`, `m`, `l`, `c`, …). In a `multipart/*` body the SDP is the first part with
+`Content-Type: application/sdp`, found by the `boundary` parameter (or, without it, the
+first `--…` line), also inside nested multipart parts. Header names such as
+`constructor` or `__proto__` are ordinary keys of `headers`. Throws on an empty or unrecognized start line.
 
 ### `parsePcap(input)` and `reassembleSip(packets, { sipPort = 5060 } = {})`
 

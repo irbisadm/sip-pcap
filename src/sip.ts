@@ -76,6 +76,48 @@ function extractUriAndTag(value: string | undefined): { uri: string | null; tag:
   return { uri, tag: tagMatch ? tagMatch[1] : null };
 }
 
+/** Media type of a Content-Type value, lower case, without parameters. */
+const mediaType = (contentType: string): string => contentType.split(";")[0].trim().toLowerCase();
+
+/** Nested multipart bodies followed when looking for SDP. */
+const MAX_MULTIPART_DEPTH = 4;
+
+/**
+ * The `application/sdp` text of a body: the body itself, or the first SDP part of a
+ * multipart body (RFC 2046 §5.1), also inside nested multipart parts. The boundary
+ * comes from the `boundary` parameter, else from the first `--…` line. `body` has LF
+ * line endings.
+ */
+function sdpText(contentType: string, body: string, depth = 0): string | null {
+  const type = mediaType(contentType);
+  if (type === "application/sdp") return body;
+  if (!type.startsWith("multipart/") || depth >= MAX_MULTIPART_DEPTH) return null;
+  const param = contentType.match(/;\s*boundary\s*=\s*(?:"([^"]+)"|([^;\s]+))/i);
+  const boundary = param ? param[1] ?? param[2] : body.match(/^--(\S+?)\s*$/m)?.[1];
+  if (!boundary) return null;
+  const delimiter = `--${boundary}`;
+  let part: string[] | null = null; // lines of the current part; null before the first delimiter
+  const parts: string[][] = [];
+  for (const line of body.split("\n")) {
+    const trimmed = line.trimEnd();
+    if (trimmed === delimiter || trimmed === `${delimiter}--`) {
+      if (part) parts.push(part);
+      if (trimmed !== delimiter) break; // close delimiter: the epilogue follows
+      part = [];
+    } else if (part) {
+      part.push(line);
+    }
+  }
+  for (const lines of parts) {
+    const blank = lines.indexOf("");
+    const head = blank === -1 ? lines : lines.slice(0, blank);
+    const partType = head.find((h) => /^content-type\s*:/i.test(h))?.replace(/^[^:]*:/, "").trim() ?? "text/plain";
+    const text = sdpText(partType, blank === -1 ? "" : lines.slice(blank + 1).join("\n"), depth + 1);
+    if (text !== null) return text;
+  }
+  return null;
+}
+
 /**
  * Parse one SIP message (CRLF or LF line endings).
  * @throws Error on an empty or unrecognized start line
@@ -146,29 +188,12 @@ export function parseSipMessage(rawText: string): SipMessage {
     if (cm) cseq = { seq: parseInt(cm[1], 10), method: cm[2].toUpperCase() };
   }
 
-  const contentType = (first(headers["content-type"]) || "").toLowerCase();
-  let sdp: SdpSession | null = null;
-  let sdpText: string | null = null;
-  if (body.trim()) {
-    if (contentType.includes("application/sdp")) {
-      sdpText = body;
-    } else if (contentType.includes("multipart/")) {
-      // pull the application/sdp part out of a multipart body
-      const idx = body.indexOf("application/sdp");
-      if (idx !== -1) {
-        const after = body.slice(idx);
-        const partStart = after.indexOf("\n\n");
-        if (partStart !== -1) {
-          let part = after.slice(partStart + 2);
-          const bnd = part.search(/\n--/);
-          if (bnd !== -1) part = part.slice(0, bnd);
-          sdpText = part;
-        }
-      }
-    }
-  }
+  // the boundary is case-sensitive, so it is read from the header as written
+  const contentTypeHeader = first(headers["content-type"]) || "";
+  const contentType = contentTypeHeader.toLowerCase();
+  const text = body.trim() ? sdpText(contentTypeHeader, body) : null;
   // parseSdp throws only on empty text
-  if (sdpText && sdpText.trim()) sdp = parseSdp(sdpText);
+  const sdp: SdpSession | null = text?.trim() ? parseSdp(text) : null;
 
   return {
     kind,
