@@ -390,6 +390,9 @@ npm run typecheck   # library, tests and a consumer of the built declarations
 npm run check:pack  # check what npm would publish
 ```
 
+[`bench/`](bench/) times `buildLadder()` on a 26 MB capture in Node.js and compares two
+ways of getting the result out of a Web Worker in a headless browser; see its README.
+
 ## License
 
 MIT

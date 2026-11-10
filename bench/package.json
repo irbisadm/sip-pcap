@@ -1,0 +1,19 @@
+{
+  "name": "sip-pcap-bench",
+  "private": true,
+  "description": "Benchmarks for buildLadder() in Node.js and for passing its result from a Web Worker in a headless browser.",
+  "type": "module",
+  "scripts": {
+    "capture": "node gen-capture.mjs 4000 1000",
+    "node": "node node-bench.mjs warm 30 5",
+    "node:cold": "./node-cold.sh 15",
+    "browser": "node browser-bench.mjs chrome 20 2",
+    "trace": "node trace-bench.mjs chrome 6",
+    "live": "node live-bench.mjs chrome 10 1",
+    "all": "./run-all.sh"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12",
+    "puppeteer-core": "^24.43.1"
+  }
+}

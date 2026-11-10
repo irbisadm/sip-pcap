@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SIP ladder bench</title>
+<style>
+/* Layout and ladder styles condensed from the SIP ladder page on webrtc.page */
+:root { --text:#e8e6e1; --muted:#9a978f; --line:#2c2f34; --panel:#1a1c20; --panel-2:#22252a; --grat-strong:#3a3e45; --sig:#e0a526; --sig-ink:#f0c460; --media:#3fb68b; --media-ink:#6fd3ad; --rose:#e5686f; --focus:#e0a526; --mono: ui-monospace, monospace; --sans: system-ui, sans-serif; }
+body { margin:0; background:#0f1113; color:var(--text); font:15px var(--sans); }
+.wrap { max-width: 1280px; margin: 0 auto; padding: 28px 24px 64px; }
+.summary { margin: 22px 0 12px; color: var(--muted); font-size: 14px; }
+.layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; align-items: start; }
+.calls { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 84px; max-height: calc(100vh - 100px); overflow: auto; scrollbar-width: none; }
+.cfilter { padding: 6px 10px; font-size: 13px; margin-bottom: 4px; }
+.call-item { text-align: left; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid transparent; border-radius: 4px; padding: 10px 12px; color: var(--text); cursor: pointer; display: flex; flex-direction: column; gap: 3px; font: 14px var(--sans); }
+.call-item.on { border-left-color: var(--sig); background: var(--panel-2); }
+.more-calls { background: none; border: 1px dashed var(--line); color: var(--text); border-radius: 4px; padding: 8px; font: 600 13px var(--sans); }
+.ci-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.ci-who { font-size: 13.5px; overflow-wrap: anywhere; } .ci-meta { color: var(--muted); font-size: 12px; }
+.pill { font: 12px var(--mono); border: 1px solid var(--line); border-radius: 10px; padding: 0 8px; color: var(--muted); white-space: nowrap; }
+.pill.ok { color: var(--media-ink); border-color: var(--media); }
+.main { min-width: 0; }
+.call-head { display: flex; justify-content: space-between; gap: 16px 32px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 12px; }
+.call-head h2 { font-weight: 800; font-size: 24px; margin: 0; overflow-wrap: anywhere; }
+.cid { color: var(--muted); font-size: 13px; margin-top: 4px; overflow-wrap: anywhere; }
+.timings { display: flex; gap: 22px; flex-wrap: wrap; margin: 0; } .timings dt { color: var(--muted); font-size: 12.5px; } .timings dd { font: 14px var(--mono); margin: 2px 0 0; }
+.ladder-scroll { scrollbar-width: none; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: #131518; max-height: 72vh; }
+.ladder { display: block; font-family: var(--mono); }
+.life { stroke: var(--grat-strong); stroke-dasharray: 3 5; } .lane-head { fill: var(--panel); stroke: var(--line); }
+.addr { fill: var(--text); font-size: 12.5px; font-weight: 600; } .agent { fill: var(--muted); font-size: 11px; }
+.band { fill: transparent; } .row.sel .band { fill: #2a2416; }
+.rel { fill: var(--muted); font-size: 11px; } .arrow { stroke-width: 1.6; }
+.lbl { font-size: 12.5px; font-family: var(--sans); font-weight: 600; } .lbl .sdp { fill: var(--media-ink); font-weight: 500; } .lbl .rt { fill: var(--muted); font-weight: 400; }
+.req .arrow { stroke: var(--sig); } .req .lbl { fill: var(--sig-ink); } .prov .arrow { stroke: var(--muted); } .prov .lbl { fill: var(--text); }
+.ok .arrow { stroke: var(--media); } .ok .lbl { fill: var(--media-ink); } .err .arrow { stroke: var(--rose); } .err .lbl { fill: var(--rose); }
+.retx .arrow { stroke-dasharray: 5 4; opacity: .6; }
+.mk.req { fill: var(--sig); } .mk.prov { fill: var(--muted); } .mk.ok { fill: var(--media); } .mk.err { fill: var(--rose); }
+.detail { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 20px; margin-top: 16px; }
+.dhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; margin-bottom: 8px; } .dhead h3, .sdp-panel h3 { font-size: 16px; margin: 0; }
+.sipraw { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 460px; overflow: auto; font-size: 12.5px; line-height: 1.5; margin: 0; }
+.sipraw b { color: var(--sig-ink); } .sipraw .hn { color: var(--media-ink); } .sipraw .body { color: var(--muted); }
+.sdpt { width: 100%; border-collapse: collapse; font: 13px var(--mono); margin: 8px 0 14px; }
+.sdpt th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--muted); }
+.sdpt td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.dim { color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="summary" id="summary">Waiting…</p>
+  <div class="layout">
+    <aside class="calls" id="calls"></aside>
+    <section class="main" id="main"></section>
+  </div>
+</div>
+<script type="module" src="main.js"></script>
+</body>
+</html>

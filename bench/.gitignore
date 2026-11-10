@@ -1,0 +1,7 @@
+node_modules/
+results/
+profile-*/
+*.pcap
+*.pid
+capture-*.json
+www/worker.js
