@@ -276,8 +276,8 @@ test("ladder messages carry SDP warnings", () => {
   ]);
   const [m] = buildLadder(pcap).calls[0].messages;
   assert.equal(m.sdpRole, "offer", "the SDP is still used");
-  assert.deepEqual(m.sdpWarnings.map((w) => w.code), ["missing-mandatory-line"]);
-  for (const x of buildLadder(proxyCallPcap()).calls[0].messages) assert.deepEqual(x.sdpWarnings, []);
+  assert.deepEqual(m.sdp.warnings.map((w) => w.code), ["missing-mandatory-line"]);
+  for (const x of buildLadder(proxyCallPcap()).calls[0].messages) assert.deepEqual(x.sdp?.warnings ?? [], []);
 });
 
 // ─── worker contract: the page gets summaries, not messages ─────────────────────

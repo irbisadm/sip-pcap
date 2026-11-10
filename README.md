@@ -73,8 +73,7 @@ Returns:
       kind: "request", method: "INVITE", statusCode: null, reason: "", label: "INVITE",
       requestUri, cseq: { seq: 314159, method: "INVITE" }, branch, fromTag, toTag,
       retransmission: false,                 // same message already seen on the same hop
-      sdp: { … },                            // parseSdp() model, or null
-      sdpWarnings: [],                       // where the SDP breaks RFC 8866 (see parseSdp)
+      sdp: { … },                            // parseSdp() result, or null; sdp.warnings: where it breaks RFC 8866
       sdpRole: "offer",                      // "offer" | "answer" | null
       negotiation: null,                     // on answers: { ...negotiate(), offerStep, answerStep } (message indices)
       raw: "INVITE sip:bob@example.net SIP/2.0\r\n…",
@@ -203,8 +202,7 @@ const msg = parseSipMessage(rawText);
 //   headers,            // lower-case names; compact forms expanded; repeats as arrays; via always an array
 //   callId, fromUri, fromTag, toUri, toTag, cseq: { seq, method },
 //   contentType, body,
-//   sdp,                // parseSdp() of an application/sdp body, also inside multipart; else null
-//   sdpWarnings }       // sdp.warnings, or [] without SDP
+//   sdp }               // parseSdp() of an application/sdp body, also inside multipart; else null
 ```
 
 Handles CRLF and LF line endings, folded headers and compact header forms (`i`, `f`,

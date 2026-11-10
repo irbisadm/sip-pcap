@@ -5,7 +5,6 @@
 
 import { parsePcap, reassembleSip } from "./pcap.js";
 import { parseSipMessage, type CSeq, type SipMessage } from "./sip.js";
-import type { SdpParseWarning } from "@irbisadm/simple-sdp";
 import type { SdpSession } from "./sdp.js";
 import { createOfferAnswerTracker, type OfferAnswerTracker, type SdpRole, type TrackedNegotiation } from "./offer-answer.js";
 
@@ -47,9 +46,8 @@ export interface LadderMessage {
   toTag: string | null;
   /** The same message was already seen on the same hop. */
   retransmission: boolean;
+  /** `sdp.warnings` lists where the SDP breaks RFC 8866, e.g. to show "SDP had N problems". */
   sdp: SdpSession | null;
-  /** Where the SDP breaks RFC 8866, e.g. to show "SDP had N problems"; empty without SDP. */
-  sdpWarnings: SdpParseWarning[];
   sdpRole: SdpRole | null;
   /**
    * On an answer: the offer/answer result, with the `index` of the offer it answers
@@ -277,7 +275,6 @@ export function buildLadder(input: Uint8Array | ArrayBuffer | ArrayBufferView, {
       toTag: msg.toTag,
       retransmission: oa.retransmission,
       sdp: msg.sdp,
-      sdpWarnings: msg.sdpWarnings,
       sdpRole: oa.role,
       negotiation,
       raw: r.raw,

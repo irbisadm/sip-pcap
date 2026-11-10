@@ -32,6 +32,7 @@ instead of defining its own.
 - `negotiate()` takes `bundle` from the answer only; an answer without BUNDLE gives `[]`
   (RFC 9143), where the offer's group was used before.
 - A rejected media section (port 0) no longer counts as hold.
+- `sdpWarnings` is removed from `SipMessage` and `LadderMessage`: use `sdp?.warnings`.
 - `LadderMessage.negotiation` is the tracker's result as is: `offerStep` (was `offerIndex`)
   and `answerStep` are message indices. `offerIndex` now means the matched media section
   of the offer, inside `negotiation.media[i]`.

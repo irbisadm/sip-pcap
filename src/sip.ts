@@ -1,7 +1,6 @@
 // SIP message parser: start line, headers (compact forms, folding), tags, CSeq,
 // SDP body (incl. multipart).
 
-import type { SdpParseWarning } from "@irbisadm/simple-sdp";
 import { parseSdp, type SdpSession } from "./sdp.js";
 
 export interface CSeq {
@@ -37,10 +36,8 @@ export interface SipMessage {
   /** Lower case, "" when absent. */
   contentType: string;
   body: string;
-  /** The `application/sdp` body (also inside multipart), parsed. */
+  /** The `application/sdp` body (also inside multipart), parsed; `sdp.warnings` lists where it breaks RFC 8866. */
   sdp: SdpSession | null;
-  /** Where the SDP body breaks RFC 8866 (`sdp.warnings`); empty without SDP. */
-  sdpWarnings: SdpParseWarning[];
 }
 
 // ─── SIP message parsing ────────────────────────────────────────────────────
@@ -168,13 +165,8 @@ export function parseSipMessage(rawText: string): SipMessage {
       }
     }
   }
-  if (sdpText && sdpText.trim()) {
-    try {
-      sdp = parseSdp(sdpText);
-    } catch {
-      sdp = null;
-    }
-  }
+  // parseSdp throws only on empty text
+  if (sdpText && sdpText.trim()) sdp = parseSdp(sdpText);
 
   return {
     kind,
@@ -192,6 +184,5 @@ export function parseSipMessage(rawText: string): SipMessage {
     contentType,
     body,
     sdp,
-    sdpWarnings: sdp?.warnings ?? [],
   };
 }
