@@ -76,7 +76,7 @@ Returns:
       sdp: { … },                            // parseSdp() model, or null
       sdpWarnings: [],                       // where the SDP breaks RFC 8866 (see parseSdp)
       sdpRole: "offer",                      // "offer" | "answer" | null
-      negotiation: null,                     // on answers: { offerIndex, ...negotiate() }
+      negotiation: null,                     // on answers: { ...negotiate(), offerStep, answerStep } (message indices)
       raw: "INVITE sip:bob@example.net SIP/2.0\r\n…",
     }, …],
     mermaid: "sequenceDiagram\n  participant P1 as 192.0.2.10:5060\n…",

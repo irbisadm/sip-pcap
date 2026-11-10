@@ -5,9 +5,9 @@
 
 import { parsePcap, reassembleSip } from "./pcap.js";
 import { parseSipMessage, type CSeq, type SipMessage } from "./sip.js";
-import type { SdpNegotiation, SdpParseWarning } from "@irbisadm/simple-sdp";
+import type { SdpParseWarning } from "@irbisadm/simple-sdp";
 import type { SdpSession } from "./sdp.js";
-import { createOfferAnswerTracker, type OfferAnswerTracker, type SdpRole } from "./offer-answer.js";
+import { createOfferAnswerTracker, type OfferAnswerTracker, type SdpRole, type TrackedNegotiation } from "./offer-answer.js";
 
 /** A network endpoint (`host:port`) the call touched. Proxies and SBCs are separate endpoints. */
 export interface LadderEndpoint {
@@ -51,8 +51,11 @@ export interface LadderMessage {
   /** Where the SDP breaks RFC 8866, e.g. to show "SDP had N problems"; empty without SDP. */
   sdpWarnings: SdpParseWarning[];
   sdpRole: SdpRole | null;
-  /** On an answer: the offer/answer result and the index of the offer it answers. */
-  negotiation: (SdpNegotiation & { offerIndex: number }) | null;
+  /**
+   * On an answer: the offer/answer result, with the `index` of the offer it answers
+   * (`offerStep`) and of this message (`answerStep`).
+   */
+  negotiation: (TrackedNegotiation & { offerStep: number; answerStep: number }) | null;
   /** The message as captured. */
   raw: string;
 }
@@ -252,11 +255,8 @@ export function buildLadder(input: Uint8Array | ArrayBuffer | ArrayBufferView, {
     const index = call.messages.length;
     // the same datagram again on the same hop is a retransmission (timer A/E/G)
     const oa = call.tracker.observe(msg, { stepIndex: index, hop: { src: r.src, dst: r.dst }, raw: r.raw });
-    let negotiation: LadderMessage["negotiation"] = null;
-    if (oa.negotiation) {
-      const { offerStep, answerStep: _answerStep, ...result } = oa.negotiation;
-      negotiation = { offerIndex: offerStep!, ...result };
-    }
+    // every message is observed with its stepIndex, so both steps are set
+    const negotiation = oa.negotiation as LadderMessage["negotiation"];
 
     call.messages.push({
       index,

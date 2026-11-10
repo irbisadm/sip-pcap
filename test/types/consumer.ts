@@ -13,7 +13,7 @@ const summary: LadderSummary = summarizeLadder(ladder);
 const call: LadderCall | undefined = ladder.calls[0];
 const outcome: "ok" | "failed" | "cancelled" | "pending" | undefined = summary.calls[0]?.outcome;
 const msg: LadderMessage | undefined = call?.messages[0];
-const offerIndex: number | undefined = msg?.negotiation?.offerIndex;
+const offerStep: number | undefined = msg?.negotiation?.offerStep;
 const role: "offer" | "answer" | null | undefined = msg?.sdpRole;
 
 const offer: SdpSession = parseSdp("v=0\r\n");
@@ -33,4 +33,4 @@ const src: string | undefined = raw[0]?.src;
 // @ts-expect-error sdpRole is not a free-form string
 const bad: LadderMessage["sdpRole"] = "maybe";
 
-export { outcome, offerIndex, role, codec, origin, r, state, src, bad };
+export { outcome, offerStep, role, codec, origin, r, state, src, bad };

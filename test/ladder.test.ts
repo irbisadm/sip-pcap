@@ -50,9 +50,10 @@ test("proxy call: offer/answer per hop, negotiated PCMU on both legs", () => {
   assert.deepEqual(roles, ["INVITE:offer", "INVITE:offer", "200 OK:answer", "200 OK:answer"]);
   const answers = c.messages.filter((m) => m.sdpRole === "answer");
   // each answer pairs with the offer on its own hop
-  assert.equal(c.messages[answers[0].negotiation.offerIndex].src, `${PROXY}:5060`);
-  assert.equal(c.messages[answers[1].negotiation.offerIndex].src, `${ALICE}:5060`);
+  assert.equal(c.messages[answers[0].negotiation.offerStep].src, `${PROXY}:5060`);
+  assert.equal(c.messages[answers[1].negotiation.offerStep].src, `${ALICE}:5060`);
   for (const a of answers) {
+    assert.equal(a.negotiation.answerStep, a.index);
     assert.deepEqual(a.negotiation.media[0].codecs.map((x) => x.encodingName), ["PCMU", "telephone-event"]);
   }
 });
