@@ -3,7 +3,8 @@
 // known), and retransmission detection. Used by the ladder and by stateful
 // consumers such as the webrtc-mcp `sip_dialog` store.
 
-import { negotiate, type SdpNegotiation, type SdpSession } from "./sdp.js";
+import type { SdpNegotiation } from "@irbisadm/simple-sdp";
+import { negotiate, type SdpSession } from "./sdp.js";
 import type { SipMessage } from "./sip.js";
 
 /** Network hop of a message: `host:port` of sender and receiver. */

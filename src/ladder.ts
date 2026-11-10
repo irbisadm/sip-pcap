@@ -5,7 +5,8 @@
 
 import { parsePcap, reassembleSip } from "./pcap.js";
 import { parseSipMessage, type CSeq, type SipMessage } from "./sip.js";
-import type { SdpNegotiation, SdpParseWarning, SdpSession } from "./sdp.js";
+import type { SdpNegotiation, SdpParseWarning } from "@irbisadm/simple-sdp";
+import type { SdpSession } from "./sdp.js";
 import { createOfferAnswerTracker, type OfferAnswerTracker, type SdpRole } from "./offer-answer.js";
 
 /** A network endpoint (`host:port`) the call touched. Proxies and SBCs are separate endpoints. */

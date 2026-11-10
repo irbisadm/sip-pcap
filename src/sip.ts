@@ -1,7 +1,8 @@
 // SIP message parser: start line, headers (compact forms, folding), tags, CSeq,
 // SDP body (incl. multipart).
 
-import { parseSdp, type SdpParseWarning, type SdpSession } from "./sdp.js";
+import type { SdpParseWarning } from "@irbisadm/simple-sdp";
+import { parseSdp, type SdpSession } from "./sdp.js";
 
 export interface CSeq {
   seq: number;

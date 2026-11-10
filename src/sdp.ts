@@ -4,12 +4,6 @@
 import { sdpNegotiator, sdpReader, sdpResolver } from "@irbisadm/simple-sdp";
 import type { SdpLenient, SdpNegotiation, SdpParseWarning, SdpResolved } from "@irbisadm/simple-sdp";
 
-export type {
-  SdpLenient, SdpLenientMediaSection, SdpResolved, SdpResolvedMediaSection, SdpResolvedCodec, SdpResolvedExtmap,
-  SdpNegotiation, SdpNegotiatedMediaSection, SdpDirection, SdpFingerprint, SdpOrigin,
-  SdpParseWarning, SdpParseWarningCode, SdpParseWarningAction,
-} from "@irbisadm/simple-sdp";
-
 /**
  * A parsed SDP body: what applies to each media section (`bundle`, `hold`, `media` of
  * `SdpResolved`), the lenient model with every line as written, and where the text

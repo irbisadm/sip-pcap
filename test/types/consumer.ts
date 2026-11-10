@@ -4,8 +4,9 @@ import {
   buildLadder, summarizeLadder, parseSdp, negotiate, parseSipMessage, parsePcap, reassembleSip,
   createOfferAnswerTracker,
   type Ladder, type LadderCall, type LadderMessage, type LadderSummary, type SdpSession,
-  type SdpNegotiation, type SdpResolvedCodec, type SipMessage, type ObserveResult,
+  type SipMessage, type ObserveResult,
 } from "@irbisadm/sip-pcap";
+import type { SdpNegotiation, SdpResolvedCodec } from "@irbisadm/simple-sdp";
 import { proxyCallPcap, classicPcap, udp, sip } from "@irbisadm/sip-pcap/testing";
 
 const ladder: Ladder = buildLadder(proxyCallPcap(), { sipPort: null });
