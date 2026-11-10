@@ -282,7 +282,7 @@ const invite = sip("INVITE sip:bob@example.net SIP/2.0", [
   "Via: SIP/2.0/UDP 192.0.2.10:5060;branch=z9hG4bK1",
   "From: <sip:alice@example.com>;tag=1", "To: <sip:bob@example.net>",
   "Call-ID: c1@example.com", "CSeq: 1 INVITE",
-], sdpText);                    // CRLF line endings, Content-Type and Content-Length set
+], sdpText);                    // CRLF line endings, Content-Type (4th argument, default application/sdp) and Content-Length set
 const bytes = classicPcap([{ ts: Date.now(), frame: udp({ src: "192.0.2.10", dst: "192.0.2.20", payload: invite }) }]);
 
 proxyCallPcap();                // a full call Alice -> proxy -> Bob, INVITE to BYE
@@ -290,7 +290,9 @@ proxyCallPcap();                // a full call Alice -> proxy -> Bob, INVITE to 
 
 Also: `udpFragmented`, `ipv4Udp`, `ipv6Udp`, `ipv6UdpFragmented`, `ethernetV6`,
 `ethernetPppoe`, `ipTunnel`, `linuxSll2`, `proxyCallFlow` (the same call as `[ms, src, dst, text]` rows) and the
-scenario addresses `ALICE`, `PROXY`, `BOB`.
+scenario addresses `ALICE`, `PROXY`, `BOB`. Ports default to 5060 for `udp` and `tcp`.
+Option types: `UdpOptions`, `TcpOptions`, `FragmentOptions`, `ClassicPcapOptions`,
+`PcapngOptions`, `TunnelOptions`, `ProxyCallOptions`.
 
 ## Supported captures
 

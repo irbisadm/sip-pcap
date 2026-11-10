@@ -13,7 +13,9 @@ export type Payload = string | Uint8Array;
 export interface UdpOptions {
   src: string;
   dst: string;
+  /** Default 5060. */
   sport?: number;
+  /** Default 5060. */
   dport?: number;
   payload: Payload;
   /** IP identification. */
@@ -25,13 +27,33 @@ export interface FragmentOptions extends UdpOptions {
   mtu?: number;
 }
 
-export interface TcpOptions {
-  src: string;
-  dst: string;
-  sport: number;
-  dport: number;
+export interface TcpOptions extends Omit<UdpOptions, "id"> {
   seq: number;
-  payload: Payload;
+}
+
+/** Options shared by the capture containers. */
+export interface CaptureOptions {
+  /** LINKTYPE of the frames; default 1 (EN10MB, Ethernet). */
+  linkType?: number;
+}
+
+export interface ClassicPcapOptions extends CaptureOptions {
+  /** Nanosecond-resolution magic (0xa1b23c4d) instead of microseconds. */
+  nano?: boolean;
+}
+
+export interface PcapngOptions extends CaptureOptions {
+  /** `if_tsresol` option value: 6 = µs (default), 9 = ns. */
+  tsresol?: number;
+}
+
+export interface TunnelOptions {
+  /** Outer source address; IPv6 when it contains `:`. */
+  src: string;
+  /** Outer destination address. */
+  dst: string;
+  /** The inner IPv4 or IPv6 packet. */
+  packet: Uint8Array;
 }
 
 const enc = new TextEncoder();
@@ -69,7 +91,7 @@ function ipv4Header({ src, dst, proto, payloadLen, id = 0, moreFragments = false
   return h;
 }
 
-function udpSegment({ sport, dport, payload }: { sport: number; dport: number; payload: Payload }): Uint8Array {
+function udpSegment({ sport, dport, payload }: Required<Pick<UdpOptions, "sport" | "dport" | "payload">>): Uint8Array {
   const data = bytes(payload);
   const u = new Uint8Array(8);
   const dv = new DataView(u.buffer);
@@ -85,21 +107,24 @@ export function udp({ src, dst, sport = 5060, dport = 5060, payload, id = 0 }: U
   return concat([ethernet(), ipv4Header({ src, dst, proto: 17, payloadLen: l4.length, id }), l4]);
 }
 
+/** Fragments of `data` of at most `mtu` bytes, rounded down to 8 (the unit of fragment offsets). */
+function fragments(data: Uint8Array, mtu: number): { part: Uint8Array; offset: number; more: boolean }[] {
+  const size = Math.floor(mtu / 8) * 8;
+  const out: { part: Uint8Array; offset: number; more: boolean }[] = [];
+  for (let offset = 0; offset < data.length; offset += size) {
+    out.push({ part: data.subarray(offset, offset + size), offset, more: offset + size < data.length });
+  }
+  return out;
+}
+
 /** A UDP datagram split into IPv4 fragments of at most `mtu` bytes of IP payload (Ethernet frames). */
 export function udpFragmented({ src, dst, sport = 5060, dport = 5060, payload, id = 1, mtu = 512 }: FragmentOptions): Uint8Array[] {
-  const l4 = udpSegment({ sport, dport, payload });
-  const size = Math.floor(mtu / 8) * 8;
-  const frames: Uint8Array[] = [];
-  for (let off = 0; off < l4.length; off += size) {
-    const part = l4.subarray(off, off + size);
-    const more = off + size < l4.length;
-    frames.push(concat([ethernet(), ipv4Header({ src, dst, proto: 17, payloadLen: part.length, id, moreFragments: more, fragOffset: off }), part]));
-  }
-  return frames;
+  return fragments(udpSegment({ sport, dport, payload }), mtu).map(({ part, offset, more }) =>
+    concat([ethernet(), ipv4Header({ src, dst, proto: 17, payloadLen: part.length, id, moreFragments: more, fragOffset: offset }), part]));
 }
 
 /** One Ethernet/IPv4/TCP frame (PSH+ACK) carrying `payload` at sequence number `seq`. */
-export function tcp({ src, dst, sport, dport, seq, payload }: TcpOptions): Uint8Array {
+export function tcp({ src, dst, sport = 5060, dport = 5060, seq, payload }: TcpOptions): Uint8Array {
   const data = bytes(payload);
   const t = new Uint8Array(20);
   const dv = new DataView(t.buffer);
@@ -112,11 +137,8 @@ export function tcp({ src, dst, sport, dport, seq, payload }: TcpOptions): Uint8
   return concat([ethernet(), ipv4Header({ src, dst, proto: 6, payloadLen: l4.length }), l4]);
 }
 
-/**
- * Classic little-endian pcap.
- * `nano` → nanosecond-resolution magic (0xa1b23c4d); `linkType` default 1 (EN10MB).
- */
-export function classicPcap(records: CaptureRecord[], { nano = false, linkType = 1 }: { nano?: boolean; linkType?: number } = {}): Uint8Array {
+/** Classic little-endian pcap. */
+export function classicPcap(records: CaptureRecord[], { nano = false, linkType = 1 }: ClassicPcapOptions = {}): Uint8Array {
   const gh = new Uint8Array(24);
   const g = new DataView(gh.buffer);
   g.setUint32(0, nano ? 0xa1b23c4d : 0xa1b2c3d4, true);
@@ -140,11 +162,8 @@ export function classicPcap(records: CaptureRecord[], { nano = false, linkType =
 
 const pad4 = (n: number) => (4 - (n % 4)) % 4;
 
-/**
- * pcapng with one SHB and one IDB.
- * `tsresol` → if_tsresol option value (default 6 = µs; 9 = ns); `linkType` default 1.
- */
-export function pcapng(records: CaptureRecord[], { tsresol = 6, linkType = 1 }: { tsresol?: number; linkType?: number } = {}): Uint8Array {
+/** pcapng with one SHB and one IDB. */
+export function pcapng(records: CaptureRecord[], { tsresol = 6, linkType = 1 }: PcapngOptions = {}): Uint8Array {
   const shb = new Uint8Array(28);
   const s = new DataView(shb.buffer);
   s.setUint32(0, 0x0a0d0d0a, true);
@@ -223,19 +242,14 @@ export function ipv6Udp({ src, dst, sport = 5060, dport = 5060, payload }: Omit<
 
 /** An IPv6/UDP datagram split with IPv6 Fragment headers (IPv6 packets, no link layer). */
 export function ipv6UdpFragmented({ src, dst, sport = 5060, dport = 5060, payload, id = 7, mtu = 512 }: FragmentOptions): Uint8Array[] {
-  const l4 = udpSegment({ sport, dport, payload });
-  const size = Math.floor(mtu / 8) * 8;
-  const out: Uint8Array[] = [];
-  for (let off = 0; off < l4.length; off += size) {
-    const part = l4.subarray(off, off + size);
+  return fragments(udpSegment({ sport, dport, payload }), mtu).map(({ part, offset, more }) => {
     const fh = new Uint8Array(8);
     const dv = new DataView(fh.buffer);
     fh[0] = 17;
-    dv.setUint16(2, off | (off + size < l4.length ? 1 : 0));
+    dv.setUint16(2, offset | (more ? 1 : 0));
     dv.setUint32(4, id);
-    out.push(ipv6Packet({ src, dst, next: 44, body: concat([fh, part]) }));
-  }
-  return out;
+    return ipv6Packet({ src, dst, next: 44, body: concat([fh, part]) });
+  });
 }
 
 /** Ethernet frame around an IPv6 packet. */
@@ -255,7 +269,7 @@ export function ethernetPppoe(ipPacket: Uint8Array): Uint8Array {
 }
 
 /** An IP packet carried in an outer IPv4 or IPv6 packet (no link layer): IP-in-IP, 6in4, 4in6, 6in6. */
-export function ipTunnel({ src, dst, packet }: { src: string; dst: string; packet: Uint8Array }): Uint8Array {
+export function ipTunnel({ src, dst, packet }: TunnelOptions): Uint8Array {
   const proto = packet[0] >> 4 === 6 ? 41 : 4;
   if (src.includes(":")) return ipv6Packet({ src, dst, next: proto, body: packet });
   return concat([ipv4Header({ src, dst, proto, payloadLen: packet.length }), packet]);
@@ -281,12 +295,12 @@ export function ipv4Udp({ src, dst, sport = 5060, dport = 5060, payload, id = 0 
 
 /**
  * Build a SIP message text with CRLF line endings and a correct Content-Length.
- * A non-empty body gets `Content-Type: application/sdp`.
+ * A non-empty body gets `Content-Type: <contentType>` (default `application/sdp`).
  */
-export function sip(startLine: string, headers: string[], body = ""): string {
+export function sip(startLine: string, headers: string[], body = "", contentType = "application/sdp"): string {
   const b = body.replace(/\r?\n/g, "\r\n");
   const lines = [startLine, ...headers];
-  if (b) lines.push("Content-Type: application/sdp");
+  if (b) lines.push(`Content-Type: ${contentType}`);
   lines.push(`Content-Length: ${enc.encode(b).length}`);
   return lines.join("\r\n") + "\r\n\r\n" + b;
 }

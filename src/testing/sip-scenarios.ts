@@ -90,11 +90,13 @@ export function proxyCallFlow(): FlowStep[] {
   ];
 }
 
-/**
- * The call as a classic pcap (Ethernet/IPv4/UDP, port 5060).
- * `t0`: timestamp of the first message, ms since the Unix epoch.
- */
-export function proxyCallPcap({ t0 = Date.UTC(2026, 10, 7, 12, 0, 0) }: { t0?: number } = {}): Uint8Array {
+export interface ProxyCallOptions {
+  /** Timestamp of the first message, ms since the Unix epoch. Default 2026-11-07 12:00 UTC. */
+  t0?: number;
+}
+
+/** The call as a classic pcap (Ethernet/IPv4/UDP, port 5060). */
+export function proxyCallPcap({ t0 = Date.UTC(2026, 10, 7, 12, 0, 0) }: ProxyCallOptions = {}): Uint8Array {
   return classicPcap(proxyCallFlow().map(([dt, src, dst, text], i) => {
     const [sip4, sport] = src.split(":");
     const [dip4, dport] = dst.split(":");

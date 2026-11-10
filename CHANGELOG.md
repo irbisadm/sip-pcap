@@ -73,6 +73,9 @@ instead of defining its own.
 ### Added
 
 - `OfferAnswerMessage` accepts `statusCode`; a `parseSipMessage` result already has it.
+- `@irbisadm/sip-pcap/testing`: `tcp()` ports default to 5060 like `udp()`; `sip()` takes
+  the body's Content-Type as a fourth argument; named option types `CaptureOptions`,
+  `ClassicPcapOptions`, `PcapngOptions`, `TunnelOptions`, `ProxyCallOptions`.
 - `ObserveResult.rejectedOfferStep` and `LadderMessage.rejectedOfferStep`: on a 3xx–6xx
   response, the step / message index of the offer it rejects (on its own hop through a
   proxy). The mermaid diagram labels such a response `(SDP offer rejected)`.
