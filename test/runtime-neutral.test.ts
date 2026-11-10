@@ -24,9 +24,11 @@ function sourceFiles(dir: string): string[] {
 const stripComments = (code: string): string =>
   code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 
-// import/export ... from "x", import "x", import("x")
+// import/export ... from "x", import "x", import("x"). Between the keyword and `from`
+// only an import/export clause (names, `type`, `* as`, braces, commas) is allowed, so
+// that `export interface X extends Pick<Y, "from" | "to">` is not taken for an import.
 const specifiers = (code: string): string[] => [
-  ...[...code.matchAll(/^\s*(?:import|export)\b[^;]*?\bfrom\s*["']([^"']+)["']/gm)].map((m) => m[1]),
+  ...[...code.matchAll(/^\s*(?:import|export)\s+[\w$*\s{},]+?\bfrom\s*["']([^"']+)["']/gm)].map((m) => m[1]),
   ...[...code.matchAll(/^\s*import\s*["']([^"']+)["']/gm)].map((m) => m[1]),
   ...[...code.matchAll(/\bimport\s*\(\s*["']([^"']+)["']/g)].map((m) => m[1]),
 ];
@@ -83,5 +85,10 @@ test("the checker catches what it should", () => {
   assert.deepEqual(
     specifiers('import fs from "node:fs";\nexport {\n  a,\n} from "./a.js";\nimport "x";\nconst m = { f: "from", s: "y" };\nawait import("z");'),
     ["node:fs", "./a.js", "x", "z"],
+  );
+  assert.deepEqual(
+    specifiers('import type { A, type B } from "@s/p";\nexport * from "./b.js";\nexport * as c from "./c.js";\n' +
+      'export interface X extends Pick<Y, "from" | "to"> {}\nexport type Z = Pick<Y,\n  "from" | "to">;'),
+    ["@s/p", "./b.js", "./c.js"],
   );
 });

@@ -3,9 +3,8 @@
 // time order, with the SDP of each step and the offer/answer outcome per hop.
 // Pure and runtime-neutral: runs in Node.js, browsers and Web Workers.
 
-import { parsePcap, reassembleSip } from "./pcap.js";
-import { parseSipMessage, type CSeq, type SipMessage } from "./sip.js";
-import type { SdpSession } from "./sdp.js";
+import { parsePcap, reassembleSip, type RawSipMessage, type ReassembleOptions } from "./pcap.js";
+import { parseSipMessage, type SipMessage } from "./sip.js";
 import { createOfferAnswerTracker, type OfferAnswerTracker, type SdpRole, type TrackedNegotiation } from "./offer-answer.js";
 
 /** A network endpoint (`host:port`) the call touched. Proxies and SBCs are separate endpoints. */
@@ -16,46 +15,31 @@ export interface LadderEndpoint {
   agent: string | null;
 }
 
-/** One SIP message of a call. */
-export interface LadderMessage {
+/**
+ * One SIP message of a call: where and when it was captured (`RawSipMessage`), the
+ * parsed fields the ladder needs (`SipMessage`), and its place in the call.
+ * `sdp.warnings` lists where the SDP breaks RFC 8866, e.g. to show "SDP had N problems".
+ */
+export interface LadderMessage extends RawSipMessage,
+  Pick<SipMessage, "kind" | "method" | "statusCode" | "requestUri" | "cseq" | "fromTag" | "toTag" | "sdp"> {
   /** Position in the call. */
   index: number;
-  /** Capture timestamp, ms since the Unix epoch (fractional). */
-  ts: number;
   /** Ms since the first message of the call. */
   rel: number;
-  /** Sender `host:port`. */
-  src: string;
-  /** Receiver `host:port`. */
-  dst: string;
-  proto: "udp" | "tcp";
-  kind: "request" | "response";
-  /** Request method; null for responses. */
-  method: string | null;
-  /** Response code; null for requests. */
-  statusCode: number | null;
   /** Reason phrase ("" for requests). */
   reason: string;
   /** Method, or `<code> <reason>`. */
   label: string;
-  requestUri: string | null;
-  cseq: CSeq | null;
   /** Branch parameter of the top Via. */
   branch: string | null;
-  fromTag: string | null;
-  toTag: string | null;
   /** The same message was already seen on the same hop. */
   retransmission: boolean;
-  /** `sdp.warnings` lists where the SDP breaks RFC 8866, e.g. to show "SDP had N problems". */
-  sdp: SdpSession | null;
   sdpRole: SdpRole | null;
   /**
    * On an answer: the offer/answer result, with the `index` of the offer it answers
    * (`offerStep`) and of this message (`answerStep`).
    */
   negotiation: (TrackedNegotiation & { offerStep: number; answerStep: number }) | null;
-  /** The message as captured. */
-  raw: string;
 }
 
 export type CallOutcome = "ok" | "failed" | "cancelled" | "pending";
@@ -90,10 +74,7 @@ export interface LadderCall extends CallSummary {
 }
 
 /** A message that looked like SIP but did not parse. */
-export interface LadderError {
-  ts: number;
-  src: string;
-  dst: string;
+export interface LadderError extends Pick<RawSipMessage, "ts" | "src" | "dst"> {
   error: string;
 }
 
@@ -107,31 +88,25 @@ export interface Ladder {
   errors: LadderError[];
 }
 
-export interface LadderCallSummary {
+/** A call of `summarizeLadder`: the fields of `LadderCall` a call list shows. */
+export interface LadderCallSummary
+  extends Pick<LadderCall, "id" | "from" | "to" | "method" | "status" | "outcome" | "durationMs"> {
+  /** Index in `ladder.calls`. */
   index: number;
-  id: string;
-  from: string | null;
-  to: string | null;
-  method: string;
-  status: string;
-  outcome: CallOutcome;
-  durationMs: number;
+  /** Number of messages. */
   messages: number;
+  /** Number of endpoints. */
   hosts: number;
 }
 
-export interface LadderSummary {
-  packets: number;
-  sipMessages: number;
+export interface LadderSummary extends Pick<Ladder, "packets" | "sipMessages"> {
   /** Number of unparsable messages. */
   errors: number;
   calls: LadderCallSummary[];
 }
 
-export interface LadderOptions {
-  /** SIP port hint (default 5060); SIP on other ports is detected by content. `null` relies on content only. */
-  sipPort?: number | null;
-}
+/** `sipPort` is passed to `reassembleSip`. */
+export type LadderOptions = ReassembleOptions;
 
 const header = (msg: SipMessage, name: string): string | null => {
   const v = msg.headers[name];
@@ -203,13 +178,8 @@ function mermaidOf(call: { endpoints: LadderEndpoint[]; messages: LadderMessage[
   return lines.join("\n");
 }
 
-interface CallState {
-  id: string;
-  from: string | null;
-  to: string | null;
-  endpoints: LadderEndpoint[];
+interface CallState extends Pick<LadderCall, "id" | "from" | "to" | "endpoints" | "messages"> {
   endpointIdx: Map<string, number>;
-  messages: LadderMessage[];
   tracker: OfferAnswerTracker;
 }
 
@@ -257,12 +227,9 @@ export function buildLadder(input: Uint8Array | ArrayBuffer | ArrayBufferView, {
     const negotiation = oa.negotiation as LadderMessage["negotiation"];
 
     call.messages.push({
+      ...r,
       index,
-      ts: r.ts,
       rel: 0,
-      src: r.src,
-      dst: r.dst,
-      proto: r.proto,
       kind: msg.kind,
       method: msg.method,
       statusCode: msg.statusCode,
@@ -277,7 +244,6 @@ export function buildLadder(input: Uint8Array | ArrayBuffer | ArrayBufferView, {
       sdp: msg.sdp,
       sdpRole: oa.role,
       negotiation,
-      raw: r.raw,
     });
   }
 
