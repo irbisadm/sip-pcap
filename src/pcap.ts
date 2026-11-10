@@ -2,8 +2,10 @@
 // Runtime-neutral: Uint8Array / DataView / TextDecoder only, so the same code runs
 // in Node.js, browsers and Web Workers. Node's Buffer works as input (it is a Uint8Array).
 
-/** A decoded UDP or TCP packet. */
-export interface Packet {
+/** A pcap or pcapng capture: `Uint8Array`, `ArrayBuffer` or any `ArrayBufferView` (a Node.js `Buffer` works). */
+export type CaptureInput = ArrayBuffer | ArrayBufferView;
+
+interface PacketBase {
   /** Capture timestamp, ms since the Unix epoch (fractional). */
   ts: number;
   /** Source IP (IPv6 in RFC 5952 form). */
@@ -12,14 +14,24 @@ export interface Packet {
   dst: string;
   sport: number;
   dport: number;
-  proto: "udp" | "tcp";
   /** Transport payload (a view into the input). */
   payload: Uint8Array;
-  /** TCP sequence number. */
-  seq?: number;
-  /** TCP flags byte. */
-  flags?: number;
 }
+
+export interface UdpPacket extends PacketBase {
+  proto: "udp";
+}
+
+export interface TcpPacket extends PacketBase {
+  proto: "tcp";
+  /** TCP sequence number. */
+  seq: number;
+  /** TCP flags byte. */
+  flags: number;
+}
+
+/** A decoded UDP or TCP packet; `proto` tells which. */
+export type Packet = UdpPacket | TcpPacket;
 
 /** A SIP message found in a capture, not parsed yet. */
 export interface RawSipMessage {
@@ -31,7 +43,7 @@ export interface RawSipMessage {
   src: string;
   /** Receiver `host:port`. */
   dst: string;
-  proto: "udp" | "tcp";
+  proto: Packet["proto"];
 }
 
 export interface ReassembleOptions {
@@ -40,11 +52,11 @@ export interface ReassembleOptions {
 }
 
 type FragmentTable = Map<string, { parts: { offset: number; data: Uint8Array }[]; total: number | null }>;
-type TcpSegment = { seq: number; ts: number; payload: Uint8Array };
+type TcpSegment = Pick<TcpPacket, "seq" | "ts" | "payload">;
 
 const utf8 = new TextDecoder("utf-8");
 
-function toBytes(input: Uint8Array | ArrayBuffer | ArrayBufferView): Uint8Array {
+function toBytes(input: CaptureInput): Uint8Array {
   if (input instanceof Uint8Array) return input;
   if (input instanceof ArrayBuffer) return new Uint8Array(input);
   if (ArrayBuffer.isView(input)) return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
@@ -59,7 +71,7 @@ const dataView = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteL
  * Other protocols and link layers are skipped. IP fragments are reassembled.
  * @throws Error when the input is not pcap or pcapng
  */
-export function parsePcap(input: Uint8Array | ArrayBuffer | ArrayBufferView): Packet[] {
+export function parsePcap(input: CaptureInput): Packet[] {
   const buf = toBytes(input);
   if (buf.length < 4) throw new Error("parsePcap: buffer too small");
   const dv = dataView(buf);
@@ -371,8 +383,8 @@ function indexOfCrlfCrlf(b: Uint8Array, from: number): number {
 // Split a TCP byte stream into SIP messages by Content-Length (which counts bytes,
 // so the split happens on bytes, not on decoded characters). Each message gets the
 // timestamp of the segment its first byte arrived in.
-function splitSipBytes(bytes: Uint8Array, tsAt: (offset: number) => number): { raw: string; ts: number }[] {
-  const out: { raw: string; ts: number }[] = [];
+function splitSipBytes(bytes: Uint8Array, tsAt: (offset: number) => number): Pick<RawSipMessage, "raw" | "ts">[] {
+  const out: Pick<RawSipMessage, "raw" | "ts">[] = [];
   let pos = 0;
   while (pos < bytes.length) {
     // skip CRLF keep-alives between messages
@@ -446,7 +458,7 @@ const endpoint = (ip: string, port: number) => (ip.includes(":") ? `[${ip}]:${po
  */
 export function reassembleSip(packets: Packet[], { sipPort = 5060 }: ReassembleOptions = {}): RawSipMessage[] {
   const out: RawSipMessage[] = [];
-  const tcpStreams = new Map<string, { segs: TcpSegment[]; sip: boolean; src: string; dst: string }>();
+  const tcpStreams = new Map<string, Pick<RawSipMessage, "src" | "dst"> & { segs: TcpSegment[]; sip: boolean }>();
   for (const p of packets) {
     const onPort = sipPort != null && (p.sport === sipPort || p.dport === sipPort);
     if (p.proto === "udp") {
@@ -465,7 +477,7 @@ export function reassembleSip(packets: Packet[], { sipPort = 5060 }: ReassembleO
       }
       if (!p.payload.length) continue;
       if (!s.sip && bytesLookLikeSip(p.payload)) s.sip = true;
-      s.segs.push({ seq: p.seq ?? 0, ts: p.ts, payload: p.payload });
+      s.segs.push({ seq: p.seq, ts: p.ts, payload: p.payload });
     }
   }
   for (const s of tcpStreams.values()) {

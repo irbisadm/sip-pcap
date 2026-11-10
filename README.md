@@ -217,7 +217,8 @@ The two steps under `buildLadder`, for callers that want their own grouping:
 import { parsePcap, reassembleSip, parseSipMessage } from "@irbisadm/sip-pcap";
 
 const packets = parsePcap(bytes);
-// [{ ts, src, dst, sport, dport, proto: "udp" | "tcp", payload: Uint8Array, seq?, flags? }]
+// [{ ts, src, dst, sport, dport, proto: "udp", payload: Uint8Array }
+//  | { …, proto: "tcp", seq, flags }]   — Packet = UdpPacket | TcpPacket; src/dst are IPs
 const messages = reassembleSip(packets);
 // [{ raw, ts, src: "host:port", dst: "host:port", proto }] in time order
 const parsed = messages.map((m) => parseSipMessage(m.raw));

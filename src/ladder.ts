@@ -3,7 +3,7 @@
 // time order, with the SDP of each step and the offer/answer outcome per hop.
 // Pure and runtime-neutral: runs in Node.js, browsers and Web Workers.
 
-import { parsePcap, reassembleSip, type RawSipMessage, type ReassembleOptions } from "./pcap.js";
+import { parsePcap, reassembleSip, type CaptureInput, type RawSipMessage, type ReassembleOptions } from "./pcap.js";
 import { parseSipMessage, type SipMessage } from "./sip.js";
 import { createOfferAnswerTracker, type OfferAnswerTracker, type SdpRole, type TrackedNegotiation } from "./offer-answer.js";
 
@@ -188,7 +188,7 @@ interface CallState extends Pick<LadderCall, "id" | "from" | "to" | "endpoints" 
 }
 
 /** Read a pcap or pcapng capture and return its SIP calls. */
-export function buildLadder(input: Uint8Array | ArrayBuffer | ArrayBufferView, { sipPort = 5060 }: LadderOptions = {}): Ladder {
+export function buildLadder(input: CaptureInput, { sipPort = 5060 }: LadderOptions = {}): Ladder {
   const packets = parsePcap(input);
   const raw = reassembleSip(packets, { sipPort });
   const calls = new Map<string, CallState>();

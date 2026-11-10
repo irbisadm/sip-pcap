@@ -33,6 +33,9 @@ instead of defining its own.
   (RFC 9143), where the offer's group was used before.
 - A rejected media section (port 0) no longer counts as hold.
 - `sdpWarnings` is removed from `SipMessage` and `LadderMessage`: use `sdp?.warnings`.
+- `Packet` is `UdpPacket | TcpPacket`: `seq` and `flags` exist on TCP packets only and
+  are no longer optional; check `proto === "tcp"` before reading them. New type
+  `CaptureInput` (`ArrayBuffer | ArrayBufferView`) for `parsePcap` and `buildLadder`.
 - Types renamed: `CallSummary` → `CallResult` (how a call ended), `LadderSummary` → `CallList`
   (the result of `summarizeLadder`), `LadderCallSummary` → `CallListItem` (a row of it).
 - `LadderMessage.negotiation` is the tracker's result as is: `offerStep` (was `offerIndex`)
