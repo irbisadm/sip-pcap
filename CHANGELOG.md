@@ -9,8 +9,8 @@ All notable changes to this project are documented here. The format follows
 ### Changed — breaking
 
 SDP interpretation moved to `@irbisadm/simple-sdp` 1.5.0 (`sdpResolver.resolve`,
-`sdpNegotiator.negotiate`), and so do the SDP types: import them from `@irbisadm/simple-sdp`.
-This package exports only `SdpSession`.
+`sdpNegotiator.negotiate`); this package re-exports the simple-sdp types its API uses
+instead of defining its own.
 
 - `parseSdp()` returns `SdpSession` = simple-sdp `SdpResolved` (`bundle`, `hold`, `media`)
   plus `model` (the lenient model, every line as written) and `warnings`. Media sections
@@ -33,10 +33,10 @@ This package exports only `SdpSession`.
   (RFC 9143), where the offer's group was used before.
 - A rejected media section (port 0) no longer counts as hold.
 - Types `Direction`, `Codec`, `Extension`, `SdpMedia`, `SdpOrigin`, `NegotiatedMedia`,
-  `Negotiation`, `SdpParseWarning`, `SdpParseWarningCode` and `SdpParseWarningAction` are no
-  longer exported. Their counterparts in `@irbisadm/simple-sdp` are `SdpDirection`,
+  and `Negotiation` are replaced by the re-exported simple-sdp types `SdpDirection`,
   `SdpResolvedCodec`, `SdpResolvedExtmap`, `SdpResolvedMediaSection`, `SdpOrigin`,
-  `SdpNegotiatedMediaSection`, `SdpNegotiation` and the same three warning types.
+  `SdpNegotiatedMediaSection` and `SdpNegotiation`; `SdpLenient`, `SdpLenientMediaSection`,
+  `SdpResolved` and `SdpFingerprint` are exported too. `SdpParseWarning*` stay exported.
 
 ### Added (via simple-sdp)
 

@@ -116,8 +116,9 @@ summarizeLadder(ladder);
 ### `parseSdp(text)`
 
 Parse an SDP body. Parsing, the per-media view and offer/answer come from
-[`@irbisadm/simple-sdp`](https://www.npmjs.com/package/@irbisadm/simple-sdp), and so do
-their types (`SdpResolved`, `SdpNegotiation`, `SdpParseWarning`, …): import them from there.
+[`@irbisadm/simple-sdp`](https://www.npmjs.com/package/@irbisadm/simple-sdp); the types
+that appear in this API (`SdpResolved`, `SdpNegotiation`, `SdpParseWarning`, …) are
+re-exported from this package.
 
 ```js
 import { parseSdp } from "@irbisadm/sip-pcap";
@@ -361,13 +362,12 @@ differ, and the difference was not analysed further.
 
 Written in TypeScript (strict). The package ships ES modules compiled to ES2022
 with their declarations; no runtime helpers, no bundling. The library is compiled
-without Node.js types, so it cannot use Node APIs by accident. The types of this
-package are exported from its root; SDP types other than `SdpSession` come from
-`@irbisadm/simple-sdp`:
+without Node.js types, so it cannot use Node APIs by accident. All public types are
+exported from the package root, including the `@irbisadm/simple-sdp` types used in the
+API, so a project under pnpm does not need simple-sdp as its own dependency:
 
 ```ts
-import type { Ladder, LadderCall, LadderSummary, SdpSession } from "@irbisadm/sip-pcap";
-import type { SdpNegotiation } from "@irbisadm/simple-sdp";
+import type { Ladder, LadderCall, LadderSummary, SdpSession, SdpNegotiation } from "@irbisadm/sip-pcap";
 ```
 
 ## Development
