@@ -1,6 +1,6 @@
 {
   "name": "@irbisadm/sip-pcap",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "SIP calls, hops and SDP offer/answer from pcap and pcapng captures. Runs in Node.js and browsers.",
   "license": "MIT",
   "author": {
