@@ -45,6 +45,11 @@ export interface ObserveResult {
   retransmission: boolean;
   /** Set on an answer that could be paired with an offer. */
   negotiation: TrackedNegotiation | null;
+  /**
+   * On a 3xx-6xx response: the `stepIndex` of the offer it rejects. Null otherwise, and
+   * when the offer was not observed with a `stepIndex`.
+   */
+  rejectedOfferStep: number | null;
 }
 
 export interface PendingOffer {
@@ -76,6 +81,8 @@ const OFFER_ANSWER_METHODS = new Set(["INVITE", "ACK", "PRACK", "UPDATE"]);
 interface TrackedOffer extends PendingOffer {
   hop: Hop | null;
   seq: number | undefined;
+  /** `requestKey` of an offer made in a request; null for a late offer in a response. */
+  request: string | null;
 }
 
 /** `<CSeq number>|<CSeq method>`: the request a message belongs to. */
@@ -94,7 +101,9 @@ const requestKey = (msg: OfferAnswerMessage): string => `${msg.cseq?.seq}|${msg.
  * - a 1xx/2xx response with SDP is an answer if its request (same CSeq number and
  *   method) offered, otherwise it is a late offer;
  * - a 3xx-6xx response to a request that offered rejects that offer: the state goes
- *   back to `stable` and the last negotiated result stays;
+ *   back to `stable`, the last negotiated result stays, and the offer no longer pairs
+ *   with answers. Through a proxy, the rejection pairs with the offer on its own hop,
+ *   like an answer;
  * - an answer pairs with the offer that crossed the same hop in the opposite
  *   direction, preferring one with the same CSeq number (`RAck` for PRACK), when hops
  *   are known; else the latest offer with the same CSeq number; else the latest offer;
@@ -144,35 +153,54 @@ export function createOfferAnswerTracker({ maxOffers = 50, maxFingerprints = Inf
     return "offer";
   }
 
+  /** The latest kept offer that matches. */
+  function latest(match: (o: TrackedOffer) => boolean): TrackedOffer | null {
+    for (let i = offers.length - 1; i >= 0; i--) if (match(offers[i])) return offers[i];
+    return null;
+  }
+
+  /** The offer crossed `hop` in the opposite direction. */
+  const onHop = (o: TrackedOffer, hop: Hop | null) => !!hop && !!o.hop && o.hop.src === hop.dst && o.hop.dst === hop.src;
+
   function offerFor(msg: OfferAnswerMessage, hop: Hop | null): TrackedOffer | null {
     const seq = (msg.method === "PRACK" ? rackSeq(msg) : null) ?? msg.cseq?.seq;
-    const latest = (match: (o: TrackedOffer) => boolean) => {
-      for (let i = offers.length - 1; i >= 0; i--) if (match(offers[i])) return offers[i];
-      return null;
-    };
-    const onHop = (o: TrackedOffer) => !!hop && !!o.hop && o.hop.src === hop.dst && o.hop.dst === hop.src;
-    return latest((o) => onHop(o) && o.seq === seq)
-      ?? latest(onHop)
+    return latest((o) => onHop(o, hop) && o.seq === seq)
+      ?? latest((o) => onHop(o, hop))
       ?? latest((o) => o.seq === seq)
       ?? offers[offers.length - 1]
       ?? null;
   }
 
+  /** The offer a 3xx-6xx response rejects: made in its request, on its hop when known. */
+  function rejectedOffer(msg: OfferAnswerMessage, hop: Hop | null): TrackedOffer | null {
+    const key = requestKey(msg);
+    return latest((o) => o.request === key && onHop(o, hop)) ?? latest((o) => o.request === key);
+  }
+
   function observe(msg: OfferAnswerMessage, { stepIndex, hop = null, raw, retransmission: known = false }: ObserveOptions = {}): ObserveResult {
     const fp = raw != null ? `${hop ? `${hop.src}>${hop.dst}` : ""}|${raw}` : null;
     if (known || (fp !== null && seen.has(fp))) {
-      return { role: (fp !== null ? seen.get(fp) : null) ?? null, retransmission: true, negotiation: null };
+      return { role: (fp !== null ? seen.get(fp) : null) ?? null, retransmission: true, negotiation: null, rejectedOfferStep: null };
     }
     const step = stepIndex ?? null;
     let role: SdpRole | null = null;
     let negotiation: TrackedNegotiation | null = null;
-    if (isRejection(msg) && offeredRequests.has(requestKey(msg))) {
-      pendingOffer = null;
+    let rejectedOfferStep: number | null = null;
+    if (isRejection(msg)) {
+      if (offeredRequests.has(requestKey(msg))) pendingOffer = null;
+      const rejected = rejectedOffer(msg, hop);
+      if (rejected) {
+        offers.splice(offers.indexOf(rejected), 1);
+        rejectedOfferStep = rejected.stepIndex;
+      }
     }
     if (msg.sdp) {
       role = assignRole(msg);
       if (role === "offer") {
-        offers.push({ sdp: msg.sdp, stepIndex: step, hop, seq: msg.cseq?.seq });
+        offers.push({
+          sdp: msg.sdp, stepIndex: step, hop, seq: msg.cseq?.seq,
+          request: msg.kind === "request" ? requestKey(msg) : null,
+        });
         if (offers.length > maxOffers) offers.shift();
         pendingOffer = { sdp: msg.sdp, stepIndex: step };
       } else if (role === "answer") {
@@ -185,7 +213,7 @@ export function createOfferAnswerTracker({ maxOffers = 50, maxFingerprints = Inf
       }
     }
     if (fp !== null && seen.size < maxFingerprints) seen.set(fp, role);
-    return { role, retransmission: false, negotiation };
+    return { role, retransmission: false, negotiation, rejectedOfferStep };
   }
 
   return {

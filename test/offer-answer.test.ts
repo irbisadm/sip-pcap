@@ -162,6 +162,7 @@ test("SDP in a 488 after an early answer has no role and keeps the early result"
   ], tracker);
   assert.deepEqual(r.map((x) => x.role), ["offer", "answer", null]);
   assert.equal(r[2].negotiation, null);
+  assert.equal(r[2].rejectedOfferStep, 0, "the INVITE failed, so its offer is rejected");
   assert.deepEqual(tracker.negotiated.media[0].codecs.map((c) => c.encodingName), ["PCMA"]);
   assert.equal(tracker.state, "stable");
 });
@@ -175,10 +176,41 @@ test("a 488 to a re-INVITE rejects the offer: back to stable, the old result sta
     [A, B, sip("INVITE sip:b@x SIP/2.0", hdrs("2 INVITE"), sdp([9]))],
   ], tracker);
   assert.equal(tracker.state, "offer-pending");
-  run([[B, A, sip("SIP/2.0 488 Not Acceptable Here", hdrs("2 INVITE"))]], tracker);
+  const [rejection] = run([[B, A, sip("SIP/2.0 488 Not Acceptable Here", hdrs("2 INVITE"))]], tracker);
+  assert.equal(rejection.rejectedOfferStep, 3);
   assert.equal(tracker.state, "stable");
   assert.equal(tracker.pendingOffer, null);
   assert.equal(tracker.negotiated.offerStep, 0);
+});
+
+test("a rejected offer no longer pairs with answers", () => {
+  // the ACK's CSeq number matches no offer, so it falls back to the latest offer:
+  // that must be the answered INVITE, not the rejected UPDATE
+  const r = run([
+    [A, B, sip("INVITE sip:b@x SIP/2.0", hdrs("1 INVITE"), sdp([0]))],
+    [B, A, sip("SIP/2.0 200 OK", hdrs("1 INVITE"), sdp([0]))],
+    [A, B, sip("UPDATE sip:b@x SIP/2.0", hdrs("2 UPDATE"), sdp([8]))],
+    [B, A, sip("SIP/2.0 488 Not Acceptable Here", hdrs("2 UPDATE"))],
+    [A, B, sip("ACK sip:b@x SIP/2.0", hdrs("9 ACK"), sdp([0]))],
+  ]);
+  assert.deepEqual(r.map((x) => x.rejectedOfferStep), [null, null, null, 2, null]);
+  assert.equal(r[4].negotiation.offerStep, 0);
+});
+
+test("through a proxy, each rejection pairs with the offer on its own hop", () => {
+  const P = "10.0.0.9:5060";
+  const inv = (pts: number[]) => sip("INVITE sip:b@x SIP/2.0", hdrs("1 INVITE"), sdp(pts));
+  const busy = sip("SIP/2.0 486 Busy Here", hdrs("1 INVITE"));
+  const r = run([[A, P, inv([0])], [P, B, inv([0, 8])], [B, P, busy], [P, A, busy]]);
+  assert.deepEqual(r.map((x) => x.rejectedOfferStep), [null, null, 1, 0]);
+});
+
+test("a rejection without an observed offer rejects nothing", () => {
+  const r = run([
+    [A, B, sip("INVITE sip:b@x SIP/2.0", hdrs("1 INVITE"))],
+    [B, A, sip("SIP/2.0 486 Busy Here", hdrs("1 INVITE"))],
+  ]);
+  assert.deepEqual(r.map((x) => x.rejectedOfferStep), [null, null]);
 });
 
 test("SDP in a 200 OK to OPTIONS is not a late offer", () => {
@@ -206,7 +238,7 @@ test("retransmission on the same hop: flagged, original role, no state change", 
   const inv = sip("INVITE sip:b@x SIP/2.0", hdrs("1 INVITE"), sdp([0]));
   const ok = sip("SIP/2.0 200 OK", hdrs("1 INVITE"), sdp([0]));
   const r = run([[A, B, inv], [B, A, ok], [A, B, inv]], tracker);
-  assert.deepEqual(r[2], { role: "offer", retransmission: true, negotiation: null });
+  assert.deepEqual(r[2], { role: "offer", retransmission: true, negotiation: null, rejectedOfferStep: null });
   assert.equal(tracker.state, "stable", "the retransmitted offer does not reopen the exchange");
   assert.equal(tracker.negotiated.offerStep, 0);
 });
@@ -227,7 +259,7 @@ test("the caller can flag a retransmission itself", () => {
   const tracker = createOfferAnswerTracker();
   const msg = parseSipMessage(sip("INVITE sip:b@x SIP/2.0", hdrs("1 INVITE"), sdp([0])));
   const r = tracker.observe(msg, { stepIndex: 0, retransmission: true });
-  assert.deepEqual(r, { role: null, retransmission: true, negotiation: null });
+  assert.deepEqual(r, { role: null, retransmission: true, negotiation: null, rejectedOfferStep: null });
   assert.equal(tracker.state, "stable");
 });
 

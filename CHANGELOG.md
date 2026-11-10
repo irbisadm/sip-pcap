@@ -58,10 +58,15 @@ instead of defining its own.
   an earlier `183`. Such a response returns the offer/answer state to `stable`.
 - SDP in a reply to `OPTIONS`, or in any method other than INVITE, ACK, PRACK and
   UPDATE, is no longer taken as a late offer.
+- A rejected offer (3xx–6xx to the request that made it) no longer pairs with answers:
+  a later answer that matched no offer by hop or CSeq used to fall back to it.
 
 ### Added
 
 - `OfferAnswerMessage` accepts `statusCode`; a `parseSipMessage` result already has it.
+- `ObserveResult.rejectedOfferStep` and `LadderMessage.rejectedOfferStep`: on a 3xx–6xx
+  response, the step / message index of the offer it rejects (on its own hop through a
+  proxy). The mermaid diagram labels such a response `(SDP offer rejected)`.
 
 ### Documentation
 

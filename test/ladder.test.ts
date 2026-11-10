@@ -280,6 +280,17 @@ test("ladder messages carry SDP warnings", () => {
   for (const x of buildLadder(proxyCallPcap()).calls[0].messages) assert.deepEqual(x.sdp?.warnings ?? [], []);
 });
 
+test("a rejected offer: the rejection points at it, the mermaid diagram says so", () => {
+  const pcap = classicPcap([
+    { ts: 0, frame: udp({ src: "10.0.0.1", dst: "10.0.0.2", payload: sip("INVITE sip:b@x SIP/2.0", base("1 INVITE"), sdp("10.0.0.1", [0])) }) },
+    { ts: 0.1, frame: udp({ src: "10.0.0.2", dst: "10.0.0.1", payload: sip("SIP/2.0 488 Not Acceptable Here", base("1 INVITE")) }) },
+  ]);
+  const c = buildLadder(pcap).calls[0];
+  assert.deepEqual(c.messages.map((m) => [m.sdpRole, m.rejectedOfferStep]), [["offer", null], [null, 0]]);
+  assert.match(c.mermaid, /488 Not Acceptable Here \(SDP offer rejected\)/);
+  assert.match(c.mermaid, /INVITE \(SDP offer\)/);
+});
+
 // ─── worker contract: the page gets summaries, not messages ─────────────────────
 test("summarizeLadder lists calls without their messages", () => {
   const r = buildLadder(proxyCallPcap());

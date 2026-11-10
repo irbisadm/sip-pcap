@@ -40,6 +40,8 @@ export interface LadderMessage extends RawSipMessage,
    * (`offerStep`) and of this message (`answerStep`).
    */
   negotiation: (TrackedNegotiation & { offerStep: number; answerStep: number }) | null;
+  /** On a 3xx-6xx response that rejects an offer: the `index` of that offer. */
+  rejectedOfferStep: number | null;
 }
 
 export type CallOutcome = "ok" | "failed" | "cancelled" | "pending";
@@ -173,7 +175,7 @@ function mermaidOf(call: { endpoints: LadderEndpoint[]; messages: LadderMessage[
   const lines = ["sequenceDiagram"];
   for (const e of call.endpoints) lines.push(`  participant ${alias.get(e.addr)} as ${clean(e.addr)}`);
   for (const m of call.messages) {
-    const sdp = m.sdpRole ? ` (SDP ${m.sdpRole})` : "";
+    const sdp = m.sdpRole ? ` (SDP ${m.sdpRole})` : m.rejectedOfferStep !== null ? " (SDP offer rejected)" : "";
     const arrow = m.kind === "response" ? "-->>" : "->>";
     lines.push(`  ${alias.get(m.src)}${arrow}${alias.get(m.dst)}: ${clean(m.label + sdp)}`);
   }
@@ -246,6 +248,7 @@ export function buildLadder(input: Uint8Array | ArrayBuffer | ArrayBufferView, {
       sdp: msg.sdp,
       sdpRole: oa.role,
       negotiation,
+      rejectedOfferStep: oa.rejectedOfferStep,
     });
   }
 

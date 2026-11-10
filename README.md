@@ -76,6 +76,7 @@ Returns:
       sdp: { … },                            // parseSdp() result, or null; sdp.warnings: where it breaks RFC 8866
       sdpRole: "offer",                      // "offer" | "answer" | null
       negotiation: null,                     // on answers: { ...negotiate(), offerStep, answerStep } (message indices)
+      rejectedOfferStep: null,               // on a 3xx–6xx that rejects an offer: the offer's index
       raw: "INVITE sip:bob@example.net SIP/2.0\r\n…",
     }, …],
     mermaid: "sequenceDiagram\n  participant P1 as 192.0.2.10:5060\n…",
@@ -236,6 +237,7 @@ messages.forEach((m, stepIndex) => {
   // r.role:           "offer" | "answer" | null
   // r.retransmission: true when the same raw text was already seen on the same hop
   // r.negotiation:    on an answer: { ...negotiate(offer, answer), offerStep, answerStep }
+  // r.rejectedOfferStep: on a 3xx–6xx response, the stepIndex of the offer it rejects
 });
 tracker.state;        // "stable" | "offer-pending"
 tracker.pendingOffer; // { sdp, stepIndex } | null
@@ -253,7 +255,10 @@ Rules (RFC 3261 §13.2.1, RFC 3262, RFC 3311, RFC 3264, RFC 6337):
 - a 1xx/2xx response with SDP is an answer if its request (same CSeq number and
   method) offered, otherwise it is a late offer;
 - a 3xx–6xx response to a request that offered rejects the offer: the state returns
-  to `stable` and `negotiated` keeps the previous result;
+  to `stable`, `negotiated` keeps the previous result, `rejectedOfferStep` points at
+  the offer, and the offer no longer pairs with answers. Through a proxy each
+  rejection pairs with the offer on its own hop. The ladder marks the response
+  `(SDP offer rejected)` in the mermaid diagram;
 - an answer pairs with the offer that crossed the same hop in the opposite direction,
   preferring one with the same CSeq number (`RAck` for PRACK), when hops are known;
   else with the latest offer with the same CSeq number; else with the latest offer;
