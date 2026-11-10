@@ -6,6 +6,40 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed — breaking
+
+SDP interpretation moved to `@irbisadm/simple-sdp` 1.5.0 (`sdpResolver.resolve`,
+`sdpNegotiator.negotiate`); this package re-exports its types instead of defining its own.
+
+- `parseSdp()` returns `SdpSession` = simple-sdp `SdpResolved` (`bundle`, `hold`, `media`)
+  plus `model` (the lenient model, every line as written) and `warnings`. Media sections
+  use simple-sdp names: `proto` (was `protocol`), `extmap` (was `extensions`), `iceUfrag`,
+  `icePwd`, `setup`, `fingerprints` (were `ice: {ufrag, pwd}` and `dtls: {setup, fingerprint}`),
+  and `index`. `mid` is absent without `a=mid` (was `"m<index>"`).
+- Codecs are simple-sdp codecs: `payloadType`, `encodingName`, `clockRate`,
+  `encodingParameters`, `parameters` (an object), `rtcpFeedback` (were `pt`, `codec`, `rate`,
+  `channels`, `fmtp` as text). They are in `m=` order; static payload types are no longer
+  moved to the end. An unassigned payload type without `a=rtpmap` has no `encodingName` (was
+  `"PT<n>"`).
+- `origin` moved to `model.origin` with simple-sdp fields (`sessId`, `sessVersion` as strings,
+  `addrType`, `unicastAddress`).
+- Absent values are left out instead of `null`.
+- `negotiate()` returns `SdpNegotiation`: per media section `codecs`, `extmap` (were
+  `agreedCodecs`, `agreedExtensions`), `offerDirection`, `answerDirection` (were
+  `directionOffer`, `directionAnswer`), `index` and `offerIndex`. `dtlsOffer`, `dtlsAnswer`,
+  `iceOffer` and `iceAnswer` are gone: read them from the resolved media sections.
+- `negotiate()` takes `bundle` from the answer only; an answer without BUNDLE gives `[]`
+  (RFC 9143), where the offer's group was used before.
+- A rejected media section (port 0) no longer counts as hold.
+- Types `Direction`, `Codec`, `Extension`, `SdpMedia`, `SdpOrigin` (own), `NegotiatedMedia`
+  and `Negotiation` are replaced by the re-exported `SdpDirection`, `SdpResolvedCodec`,
+  `SdpResolvedExtmap`, `SdpResolvedMediaSection`, `SdpOrigin`, `SdpNegotiatedMediaSection`
+  and `SdpNegotiation`; `SdpLenient`, `SdpResolved` and `SdpFingerprint` are exported too.
+
+### Added (via simple-sdp)
+
+- Session-level `a=extmap` applies to media sections; `a=rtcp-fb:*` is added to every codec.
+
 ### Fixed
 
 - A call whose INVITE was challenged with `401`/`407` and sent again with the next

@@ -115,35 +115,40 @@ summarizeLadder(ladder);
 
 ### `parseSdp(text)`
 
-Parse an SDP into a normalized model:
+Parse an SDP body. Parsing, the per-media view and offer/answer come from
+[`@irbisadm/simple-sdp`](https://www.npmjs.com/package/@irbisadm/simple-sdp); the types
+are re-exported from this package.
 
 ```js
 import { parseSdp } from "@irbisadm/sip-pcap";
 
 parseSdp(sdpText);
 // {
-//   origin: { username, sessionId, sessionVersion, netType, ipVer, address },
-//   bundle: ["0", "1"],          // a=group:BUNDLE
-//   hold: false,                 // some media section is not sendrecv
-//   media: [{
-//     mid: "0",                  // a=mid, or "m<index>" when absent
-//     type: "audio", port: 49170, rejected: false, protocol: "UDP/TLS/RTP/SAVPF",
-//                                // port is null when the m= line has no readable port
+//   bundle: ["0", "1"],          // mids of the first a=group:BUNDLE
+//   hold: false,                 // a media section that is not rejected is not sendrecv
+//   media: [{                    // simple-sdp sdpResolver.resolve(): what applies to each m= line
+//     index: 0, mid: "0",        // mid is absent without a=mid
+//     type: "audio", port: 49170, rejected: false, proto: "UDP/TLS/RTP/SAVPF",
 //     direction: "sendrecv",
-//     codecs: [{ pt: 111, codec: "opus", rate: 48000, channels: 2, fmtp: "minptime=10;useinbandfec=1" },
-//              { pt: 0, codec: "PCMU", rate: 8000, channels: 1, fmtp: null, static: true }],
-//     extensions: [{ id: 1, uri: "urn:ietf:params:rtp-hdrext:ssrc-audio-level" }],
-//     ice: { ufrag, pwd } | null,
-//     dtls: { setup, fingerprint: "sha-256 AA:BB:…" } | null,
+//     codecs: [{ payloadType: 111, encodingName: "opus", clockRate: 48000, encodingParameters: 2,
+//                parameters: { minptime: "10", useinbandfec: "1" } },
+//              { payloadType: 0, encodingName: "PCMU", clockRate: 8000, static: true }],
+//     extmap: [{ id: 1, uri: "urn:ietf:params:rtp-hdrext:ssrc-audio-level" }],
+//     iceUfrag: "…", icePwd: "…", setup: "actpass",
+//     fingerprints: [{ hashFunction: "sha-256", fingerprint: "AA:BB:…" }],
 //   }],
+//   model: { origin, connectionInformation, media: [ … ], … }, // simple-sdp lenient model, every line
 //   warnings: [],                // empty for a clean SDP, see below
 // }
 ```
 
-Static payload types listed in `m=` without `a=rtpmap` get their name and rate from
-the RFC 3551 table and `static: true`. Session-level `a=sendrecv`/`sendonly`/…,
-`a=ice-ufrag`, `a=ice-pwd`, `a=fingerprint` and `a=setup` apply to every media
-section that does not set its own. Throws on empty input only.
+`media` is the effective view: session-level direction, ICE, DTLS and `a=extmap` apply
+to every media section that does not set its own, static payload types listed in `m=`
+without `a=rtpmap` get their RFC 3551 name, rate and `static: true`, and `a=rtcp-fb:*`
+is added to every codec. The full rules are in the simple-sdp README ("Resolve and
+negotiate"). `model` keeps everything as written: origin, connection, candidates, SSRCs,
+generic attributes. Absent values are left out rather than `null`. Throws on empty input
+only.
 
 Parsing is lenient (simple-sdp `parseLenient`): an SDP that breaks RFC 8866 (lines
 out of order, unknown or malformed lines, a missing `s=`, trailing spaces, CR-only
@@ -159,32 +164,33 @@ parseSdp("v=0\r\no=- 1 1 IN IP4 10.0.0.1\r\nc=IN IP4 10.0.0.1\r\nt=0 0\r\nm=audi
 `code` is one of simple-sdp's stable `SdpParseWarningCode` values; `action` says
 what the parser did with the line (`kept`, `skipped`, `generic-attribute`,
 `first-kept`, `repaired`). Values that are not RFC-conformant but still readable are
-kept: `a=setup:client` gives `dtls.setup: "client"`, `a=rtpmap:96 telephone-event`
-(no clock rate) gives the codec with `rate: null`.
+used: `a=setup:client` gives `setup: "client"`, `a=rtpmap:96 telephone-event` (no clock
+rate) gives the codec without `clockRate`.
 
 ### `negotiate(offer, answer)`
 
-RFC 3264 outcome of two `parseSdp` results, one entry per answer media section:
+RFC 3264 outcome of two `parseSdp` results (simple-sdp `sdpNegotiator.negotiate`), one
+entry per answer media section:
 
 ```js
 import { parseSdp, negotiate } from "@irbisadm/sip-pcap";
 
 negotiate(parseSdp(offerText), parseSdp(answerText));
 // {
-//   bundle: ["0", "1"],
+//   bundle: ["0", "1"],          // the answer's group; [] when the answer declines BUNDLE
 //   hold: false,
 //   media: [{
-//     mid: "0", type: "audio", rejected: false,
-//     agreedCodecs: [ …answer codecs also in the offer (by name, rate, channels)… ],
-//     agreedExtensions: [ …answer extensions also in the offer (by URI)… ],
-//     directionOffer: "sendrecv", directionAnswer: "sendrecv", hold: false,
-//     dtlsOffer: "actpass", dtlsAnswer: "active",
-//     iceOffer: "ufragA", iceAnswer: "ufragB",
+//     index: 0, offerIndex: 0, mid: "0", type: "audio", rejected: false,
+//     codecs: [ …answer codecs also in the offer (by name, clock rate, channels)… ],
+//     extmap: [ …answer extensions also in the offer (by URI)… ],
+//     offerDirection: "sendrecv", answerDirection: "sendrecv", hold: false,
 //   }],
 // }
 ```
 
-Media sections are matched by `mid`, else by position.
+Media sections are matched by `mid`, else by position; `offerIndex` is the matched
+section of the offer. ICE and DTLS values of each side are in `offer.media[offerIndex]`
+and `answer.media[index]`.
 
 ### `parseSipMessage(text)`
 
@@ -256,35 +262,6 @@ Rules (RFC 3261 §13.2.1, RFC 3262, RFC 3311, RFC 3264, RFC 6337):
 
 `hop` and `raw` are optional: without `hop`, pairing falls back to CSeq; without
 `raw`, retransmissions are not detected unless you pass `retransmission: true`.
-
-## SDP parsing: differences from sdp-transform
-
-Until 0.1.0, SDP was parsed with `sdp-transform`; it is now parsed with
-`@irbisadm/simple-sdp`. A differential test (`test/sdp-differential.test.ts`) checks
-that the result is the same for 31 real SDPs from browsers and SIP devices
-(`test/fixtures/sdp`), the SDPs of the test scenarios and further SIP cases, apart
-from these intended differences:
-
-1. **Non-RTP media have no codecs.** `m=application 9 UDP/DTLS/SCTP webrtc-datachannel`
-   used to get a bogus codec `{ pt: null, codec: "PTNaN" }`; now `codecs: []`.
-2. **Session-level attributes apply to media.** Direction, ICE ufrag/pwd, DTLS
-   fingerprint and setup given at session level are used for media sections that do
-   not set their own (RFC 8866 §6.7, RFC 8839, RFC 8122). Before, a session-level
-   `a=sendonly` (common for SIP hold) was ignored, and Firefox media showed
-   `dtls.fingerprint: null`.
-3. **Strings stay strings.** `ice.ufrag`, `ice.pwd`, `fmtp` and `origin.username`
-   are always strings; sdp-transform turned integer-looking values into numbers
-   (`a=ice-ufrag:1234` gave `1234`). `origin.sessionId`/`sessionVersion` keep their
-   documented behaviour: a number when it fits exactly, else the string.
-4. **Codecs come from the `m=` line.** An `a=rtpmap` for a payload type that is not
-   in `m=`, or a second `a=rtpmap` for the same type, no longer adds a codec. Codecs
-   with `a=rtpmap` are listed in `m=` order (before: `a=rtpmap` line order, the
-   same in practice), followed by static types without it, as before.
-5. **Broken SDP** is recovered by simple-sdp's lenient rules and reported in
-   `warnings` (see `parseSdp`). Where the two parsers recovered differently, the
-   simple-sdp result applies: for example, an unreadable port gives `port: null`
-   (sdp-transform left it out), an `o=` line with a non-numeric session id is kept, and
-   of two direction attributes in one section the first one counts (it was the last).
 
 ## Testing helpers: `@irbisadm/sip-pcap/testing`
 
@@ -388,7 +365,7 @@ without Node.js types, so it cannot use Node APIs by accident. All public types 
 exported from the package root, e.g.:
 
 ```ts
-import type { Ladder, LadderCall, LadderSummary, SdpSession, Negotiation } from "@irbisadm/sip-pcap";
+import type { Ladder, LadderCall, LadderSummary, SdpSession, SdpNegotiation } from "@irbisadm/sip-pcap";
 ```
 
 ## Development

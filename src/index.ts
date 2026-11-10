@@ -5,7 +5,8 @@ export { parseSipMessage } from "./sip.js";
 export type { SipMessage, SipHeaders, CSeq } from "./sip.js";
 export { parseSdp, negotiate } from "./sdp.js";
 export type {
-  Direction, Codec, Extension, SdpMedia, SdpOrigin, SdpSession, NegotiatedMedia, Negotiation,
+  SdpSession, SdpLenient, SdpLenientMediaSection, SdpResolved, SdpResolvedMediaSection, SdpResolvedCodec,
+  SdpResolvedExtmap, SdpNegotiation, SdpNegotiatedMediaSection, SdpDirection, SdpFingerprint, SdpOrigin,
   SdpParseWarning, SdpParseWarningCode, SdpParseWarningAction,
 } from "./sdp.js";
 export { createOfferAnswerTracker } from "./offer-answer.js";

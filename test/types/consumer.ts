@@ -4,7 +4,7 @@ import {
   buildLadder, summarizeLadder, parseSdp, negotiate, parseSipMessage, parsePcap, reassembleSip,
   createOfferAnswerTracker,
   type Ladder, type LadderCall, type LadderMessage, type LadderSummary, type SdpSession,
-  type Negotiation, type SipMessage, type ObserveResult,
+  type SdpNegotiation, type SdpResolvedCodec, type SipMessage, type ObserveResult,
 } from "@irbisadm/sip-pcap";
 import { proxyCallPcap, classicPcap, udp, sip } from "@irbisadm/sip-pcap/testing";
 
@@ -17,8 +17,10 @@ const offerIndex: number | undefined = msg?.negotiation?.offerIndex;
 const role: "offer" | "answer" | null | undefined = msg?.sdpRole;
 
 const offer: SdpSession = parseSdp("v=0\r\n");
-const n: Negotiation = negotiate(offer, offer);
-const codec: string | undefined = n.media[0]?.agreedCodecs[0]?.codec;
+const n: SdpNegotiation = negotiate(offer, offer);
+const agreed: SdpResolvedCodec | undefined = n.media[0]?.codecs[0];
+const codec: string | undefined = agreed?.encodingName;
+const origin: string | undefined = offer.model.origin?.sessId;
 
 const m: SipMessage = parseSipMessage(sip("OPTIONS sip:x SIP/2.0", []));
 const tracker = createOfferAnswerTracker({ maxOffers: 10 });
@@ -31,4 +33,4 @@ const src: string | undefined = raw[0]?.src;
 // @ts-expect-error sdpRole is not a free-form string
 const bad: LadderMessage["sdpRole"] = "maybe";
 
-export { outcome, offerIndex, role, codec, r, state, src, bad };
+export { outcome, offerIndex, role, codec, origin, r, state, src, bad };

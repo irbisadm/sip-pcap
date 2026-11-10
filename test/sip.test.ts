@@ -51,7 +51,7 @@ test("request: start line, tags, CSeq, headers, SDP", () => {
   assert.equal(m.contentType, "application/sdp");
   assert.equal(m.headers.via.length, 2, "Via is always an array, in order");
   assert.equal(m.headers["user-agent"], "Linphone/5.2");
-  assert.equal(m.sdp.media[0].codecs[0].codec, "PCMU");
+  assert.equal(m.sdp.media[0].codecs[0].encodingName, "PCMU");
   assert.equal(m.body, sdpBody.replace(/\r\n/g, "\n"));
 });
 
@@ -162,7 +162,7 @@ test("sdpWarnings: SDP that breaks RFC 8866 is parsed and its problems listed", 
   const broken = sdpBody.replace("t=0 0\r\n", "").replace("s=-\r\n", "s=-\r\nx=1\r\n");
   const p = parseSipMessage(sip(["INVITE sip:b@x SIP/2.0", "Call-ID: w@x", "CSeq: 1 INVITE", "Content-Type: application/sdp"], broken));
   assert.ok(p.sdp, "SDP kept");
-  assert.equal(p.sdp.media[0].codecs[0].codec, "PCMU");
+  assert.equal(p.sdp.media[0].codecs[0].encodingName, "PCMU");
   assert.deepEqual(p.sdpWarnings.map((w) => w.code), ["unknown-line-type", "missing-mandatory-line"]);
   assert.equal(p.sdpWarnings, p.sdp.warnings);
 });

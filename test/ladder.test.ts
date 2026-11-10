@@ -53,7 +53,7 @@ test("proxy call: offer/answer per hop, negotiated PCMU on both legs", () => {
   assert.equal(c.messages[answers[0].negotiation.offerIndex].src, `${PROXY}:5060`);
   assert.equal(c.messages[answers[1].negotiation.offerIndex].src, `${ALICE}:5060`);
   for (const a of answers) {
-    assert.deepEqual(a.negotiation.media[0].agreedCodecs.map((x) => x.codec), ["PCMU", "telephone-event"]);
+    assert.deepEqual(a.negotiation.media[0].codecs.map((x) => x.encodingName), ["PCMU", "telephone-event"]);
   }
 });
 
@@ -87,7 +87,7 @@ test("late offer: INVITE without SDP, offer in 200 OK, answer in ACK", () => {
   ]);
   const c = buildLadder(pcap).calls[0];
   assert.deepEqual(c.messages.map((m) => m.sdpRole), [null, "offer", "answer"]);
-  assert.deepEqual(c.messages[2].negotiation.media[0].agreedCodecs.map((x) => x.codec), ["PCMA"]);
+  assert.deepEqual(c.messages[2].negotiation.media[0].codecs.map((x) => x.encodingName), ["PCMA"]);
 });
 
 test("rejected call reports the final status", () => {
@@ -157,7 +157,7 @@ test("IPv4-fragmented INVITE is reassembled", () => {
   const r = buildLadder(classicPcap(frames.map((frame, i) => ({ ts: i, frame }))));
   assert.equal(r.sipMessages, 1);
   assert.equal(r.calls[0].messages[0].sdpRole, "offer");
-  assert.equal(r.calls[0].messages[0].sdp.media[0].codecs[0].codec, "opus");
+  assert.equal(r.calls[0].messages[0].sdp.media[0].codecs[0].encodingName, "opus");
 });
 
 test("SIP on a non-standard port is found by content", () => {

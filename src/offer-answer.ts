@@ -3,7 +3,7 @@
 // known), and retransmission detection. Used by the ladder and by stateful
 // consumers such as the webrtc-mcp `sip_dialog` store.
 
-import { negotiate, type Negotiation, type SdpSession } from "./sdp.js";
+import { negotiate, type SdpNegotiation, type SdpSession } from "./sdp.js";
 import type { SipMessage } from "./sip.js";
 
 /** Network hop of a message: `host:port` of sender and receiver. */
@@ -36,7 +36,7 @@ export interface ObserveOptions {
   retransmission?: boolean;
 }
 
-export type TrackedNegotiation = Negotiation & { offerStep: number | null; answerStep: number | null };
+export type TrackedNegotiation = SdpNegotiation & { offerStep: number | null; answerStep: number | null };
 
 export interface ObserveResult {
   /**

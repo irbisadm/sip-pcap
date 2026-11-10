@@ -60,12 +60,10 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@irbisadm/simple-sdp": "^1.4.0"
+    "@irbisadm/simple-sdp": "^1.5.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",
-    "@types/sdp-transform": "^3.0.0",
-    "sdp-transform": "^3.0.0",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3"
   },

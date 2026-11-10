@@ -46,7 +46,7 @@ test("proxied call: two hops, two offer/answer pairs, each answer pairs with its
   assert.equal(results[6].negotiation.offerStep, 0);
   assert.equal(results[6].negotiation.answerStep, 6);
   for (const i of [5, 6]) {
-    assert.deepEqual(results[i].negotiation.media[0].agreedCodecs.map((c) => c.codec), ["PCMU", "telephone-event"]);
+    assert.deepEqual(results[i].negotiation.media[0].codecs.map((c) => c.encodingName), ["PCMU", "telephone-event"]);
   }
   assert.equal(tracker.state, "stable");
   assert.equal(tracker.pendingOffer, null);
@@ -76,7 +76,7 @@ test("late offer: INVITE without SDP, offer in 200 OK, answer in ACK", () => {
   assert.equal(ok.role, "offer");
   assert.equal(ack.role, "answer");
   assert.equal(ack.negotiation.offerStep, 1);
-  assert.deepEqual(ack.negotiation.media[0].agreedCodecs.map((c) => c.codec), ["PCMA"]);
+  assert.deepEqual(ack.negotiation.media[0].codecs.map((c) => c.encodingName), ["PCMA"]);
   assert.equal(tracker.state, "stable");
 });
 
@@ -139,7 +139,7 @@ test("a later answer on the hop pairs with the offer of its own CSeq, not the la
   assert.equal(r[1].negotiation.offerStep, 0);
   assert.equal(r[3].negotiation.offerStep, 2);
   assert.equal(r[4].negotiation.offerStep, 0);
-  assert.deepEqual(r[4].negotiation.media[0].agreedCodecs.map((c) => c.codec), ["PCMU"]);
+  assert.deepEqual(r[4].negotiation.media[0].codecs.map((c) => c.encodingName), ["PCMU"]);
 });
 
 test("the same CSeq on another hop does not win over the offer on this hop", () => {
@@ -162,7 +162,7 @@ test("SDP in a 488 after an early answer has no role and keeps the early result"
   ], tracker);
   assert.deepEqual(r.map((x) => x.role), ["offer", "answer", null]);
   assert.equal(r[2].negotiation, null);
-  assert.deepEqual(tracker.negotiated.media[0].agreedCodecs.map((c) => c.codec), ["PCMA"]);
+  assert.deepEqual(tracker.negotiated.media[0].codecs.map((c) => c.encodingName), ["PCMA"]);
   assert.equal(tracker.state, "stable");
 });
 
@@ -197,7 +197,7 @@ test("state follows offers and answers", () => {
   run([[A, B, sip("INVITE sip:b@x SIP/2.0", hdrs("1 INVITE"), sdp([0]))]], tracker);
   assert.equal(tracker.state, "offer-pending");
   assert.equal(tracker.pendingOffer.stepIndex, 0);
-  assert.equal(tracker.pendingOffer.sdp.media[0].codecs[0].codec, "PCMU");
+  assert.equal(tracker.pendingOffer.sdp.media[0].codecs[0].encodingName, "PCMU");
   assert.equal(tracker.negotiated, null);
 });
 

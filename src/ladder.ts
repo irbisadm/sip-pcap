@@ -5,7 +5,7 @@
 
 import { parsePcap, reassembleSip } from "./pcap.js";
 import { parseSipMessage, type CSeq, type SipMessage } from "./sip.js";
-import type { Negotiation, SdpParseWarning, SdpSession } from "./sdp.js";
+import type { SdpNegotiation, SdpParseWarning, SdpSession } from "./sdp.js";
 import { createOfferAnswerTracker, type OfferAnswerTracker, type SdpRole } from "./offer-answer.js";
 
 /** A network endpoint (`host:port`) the call touched. Proxies and SBCs are separate endpoints. */
@@ -51,7 +51,7 @@ export interface LadderMessage {
   sdpWarnings: SdpParseWarning[];
   sdpRole: SdpRole | null;
   /** On an answer: the offer/answer result and the index of the offer it answers. */
-  negotiation: (Negotiation & { offerIndex: number }) | null;
+  negotiation: (SdpNegotiation & { offerIndex: number }) | null;
   /** The message as captured. */
   raw: string;
 }

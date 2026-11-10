@@ -1,4 +1,4 @@
-// SDP samples shared by the unit tests and the differential test.
+// SDP samples shared by the unit tests.
 
 export const sdpOffer = [
   "v=0", "o=- 1 2 IN IP4 127.0.0.1", "s=-", "t=0 0", "a=group:BUNDLE 0 1",
