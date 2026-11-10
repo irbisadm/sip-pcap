@@ -4,14 +4,12 @@
 // consumers such as the webrtc-mcp `sip_dialog` store.
 
 import type { SdpNegotiation } from "@irbisadm/simple-sdp";
+import type { RawSipMessage } from "./pcap.js";
 import { negotiate, type SdpSession } from "./sdp.js";
 import type { SipMessage } from "./sip.js";
 
 /** Network hop of a message: `host:port` of sender and receiver. */
-export interface Hop {
-  src: string;
-  dst: string;
-}
+export type Hop = Pick<RawSipMessage, "src" | "dst">;
 
 /**
  * What the tracker needs from a message. A `parseSipMessage` result fits.
@@ -19,10 +17,8 @@ export interface Hop {
  * tells a 1xx/2xx answer from SDP in an error response; without it every response
  * is treated as 1xx/2xx.
  */
-export type OfferAnswerMessage = Pick<SipMessage, "kind" | "method" | "cseq" | "sdp"> & {
-  headers?: SipMessage["headers"];
-  statusCode?: number | null;
-};
+export type OfferAnswerMessage = Pick<SipMessage, "kind" | "method" | "cseq" | "sdp">
+  & Partial<Pick<SipMessage, "headers" | "statusCode">>;
 
 export type SdpRole = "offer" | "answer";
 
@@ -59,7 +55,7 @@ export interface PendingOffer {
 export interface OfferAnswerTracker {
   /** Feed the next message of the call, in order. */
   observe(msg: OfferAnswerMessage, opts?: ObserveOptions): ObserveResult;
-  /** `offer-pending` after an offer until an answer arrives. */
+  /** `offer-pending` while there is a `pendingOffer`, else `stable`. */
   readonly state: "stable" | "offer-pending";
   /** The latest unanswered offer. */
   readonly pendingOffer: PendingOffer | null;
@@ -77,12 +73,13 @@ export interface TrackerOptions {
 /** Methods whose requests and 1xx/2xx responses take part in offer/answer. */
 const OFFER_ANSWER_METHODS = new Set(["INVITE", "ACK", "PRACK", "UPDATE"]);
 
-interface TrackedOffer {
-  sdp: SdpSession;
-  stepIndex: number | null;
+interface TrackedOffer extends PendingOffer {
   hop: Hop | null;
   seq: number | undefined;
 }
+
+/** `<CSeq number>|<CSeq method>`: the request a message belongs to. */
+const requestKey = (msg: OfferAnswerMessage): string => `${msg.cseq?.seq}|${msg.cseq?.method}`;
 
 /**
  * Create the offer/answer state of one call.
@@ -116,7 +113,6 @@ export function createOfferAnswerTracker({ maxOffers = 50, maxFingerprints = Inf
   /** hop|raw fingerprint → role of the first message with it */
   const seen = new Map<string, SdpRole | null>();
 
-  let state: OfferAnswerTracker["state"] = "stable";
   let pendingOffer: PendingOffer | null = null;
   let negotiated: TrackedNegotiation | null = null;
 
@@ -129,18 +125,21 @@ export function createOfferAnswerTracker({ maxOffers = 50, maxFingerprints = Inf
 
   const isRejection = (msg: OfferAnswerMessage) => msg.kind === "response" && (msg.statusCode ?? 0) >= 300;
 
-  function roleOf(msg: OfferAnswerMessage): SdpRole | null {
+  /**
+   * The role of a message with SDP. Records what later messages depend on (requests
+   * that offered, INVITEs with a late offer), so it is called once per message.
+   */
+  function assignRole(msg: OfferAnswerMessage): SdpRole | null {
     const seq = msg.cseq?.seq;
-    const key = `${seq}|${msg.cseq?.method}`;
     if (!OFFER_ANSWER_METHODS.has((msg.kind === "request" ? msg.method : msg.cseq?.method) ?? "")) return null;
     if (isRejection(msg)) return null;
     if (msg.kind === "request") {
       if (msg.method === "ACK") return "answer";
       if (msg.method === "PRACK" && lateOffers.has(rackSeq(msg) ?? seq)) return "answer";
-      offeredRequests.add(key);
+      offeredRequests.add(requestKey(msg));
       return "offer";
     }
-    if (offeredRequests.has(key)) return "answer";
+    if (offeredRequests.has(requestKey(msg))) return "answer";
     if (msg.cseq?.method === "INVITE") lateOffers.add(seq);
     return "offer";
   }
@@ -167,20 +166,17 @@ export function createOfferAnswerTracker({ maxOffers = 50, maxFingerprints = Inf
     const step = stepIndex ?? null;
     let role: SdpRole | null = null;
     let negotiation: TrackedNegotiation | null = null;
-    if (isRejection(msg) && offeredRequests.has(`${msg.cseq?.seq}|${msg.cseq?.method}`)) {
-      state = "stable";
+    if (isRejection(msg) && offeredRequests.has(requestKey(msg))) {
       pendingOffer = null;
     }
     if (msg.sdp) {
-      role = roleOf(msg);
+      role = assignRole(msg);
       if (role === "offer") {
         offers.push({ sdp: msg.sdp, stepIndex: step, hop, seq: msg.cseq?.seq });
         if (offers.length > maxOffers) offers.shift();
-        state = "offer-pending";
         pendingOffer = { sdp: msg.sdp, stepIndex: step };
       } else if (role === "answer") {
         const offer = offerFor(msg, hop);
-        state = "stable";
         pendingOffer = null;
         if (offer) {
           negotiation = { ...negotiate(offer.sdp, msg.sdp), offerStep: offer.stepIndex, answerStep: step };
@@ -194,7 +190,7 @@ export function createOfferAnswerTracker({ maxOffers = 50, maxFingerprints = Inf
 
   return {
     observe,
-    get state() { return state; },
+    get state() { return pendingOffer ? "offer-pending" : "stable"; },
     get pendingOffer() { return pendingOffer; },
     get negotiated() { return negotiated; },
   };
