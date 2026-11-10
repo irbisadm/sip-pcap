@@ -11,7 +11,8 @@ export interface CSeq {
 
 /**
  * Header values by lower-case name. Compact forms are expanded, repeated headers
- * become arrays, and `via` is always an array.
+ * become arrays, and `via` is always an array. The object has no prototype, so header
+ * names such as `constructor` or `__proto__` are ordinary keys.
  */
 export type SipHeaders = Record<string, string | string[]> & { via?: string[] };
 
@@ -97,7 +98,8 @@ export function parseSipMessage(rawText: string): SipMessage {
     else folded.push(ln);
   }
 
-  const headers: SipHeaders = {};
+  // no prototype: a header named `constructor` or `__proto__` must not hit Object.prototype
+  const headers: SipHeaders = Object.create(null);
   for (const ln of folded) {
     const ci = ln.indexOf(":");
     if (ci === -1) continue;

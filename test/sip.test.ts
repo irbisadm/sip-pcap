@@ -137,6 +137,15 @@ test("non-SDP body is kept but not parsed", () => {
   assert.equal(p.body, "v=0 is not SDP here");
 });
 
+test("header names from Object.prototype are ordinary headers", () => {
+  const p = parseSipMessage(sip(["OPTIONS sip:b@x SIP/2.0", "Constructor: c", "__proto__: p", "toString: t", "toString: u"]));
+  assert.equal(p.headers.constructor, "c");
+  assert.equal(p.headers.__proto__, "p");
+  assert.deepEqual(p.headers.tostring, ["t", "u"]);
+  assert.equal(Object.getPrototypeOf(p.headers), null);
+  assert.equal(parseSipMessage(sip(["OPTIONS sip:b@x SIP/2.0"])).headers.constructor, undefined);
+});
+
 test("no headers needed beyond the start line", () => {
   const p = parseSipMessage("BYE sip:b@x SIP/2.0\r\n\r\n");
   assert.equal(p.method, "BYE");
